@@ -190,12 +190,10 @@ def bid(b: Bid, x_init_data: str = Header()):
         rows = c.execute("SELECT id, balance FROM users WHERE id = ANY(%s) "
                          "ORDER BY id FOR UPDATE", (ids,)).fetchall()
         bal = next(r["balance"] for r in rows if r["id"] == uid)
-        own = a["top_bid"] if a["top_user"] == uid else 0
-        if bal + own < b.amount:
+        # Har bir stavka alohida to'lanadi: oldingi stavka qaytarilmaydi
+        # va yangi stavka uchun qayta ishlatilmaydi.
+        if bal < b.amount:
             raise HTTPException(400, "Coin yetarli emas")
-        if a["top_user"] is not None:  # oldingi yetakchiga qaytarish
-            c.execute("UPDATE users SET balance=balance+%s WHERE id=%s",
-                      (a["top_bid"], a["top_user"]))
         c.execute("UPDATE users SET balance=balance-%s WHERE id=%s", (b.amount, uid))
         c.execute("UPDATE auctions SET top_bid=%s, top_user=%s WHERE id=%s",
                   (b.amount, uid, a["id"]))
