@@ -44,6 +44,12 @@ summary{font-weight:700;cursor:pointer;padding:8px 0}
 @media (prefers-reduced-motion:reduce){.hammer{animation:none}}
 #toast{position:fixed;left:14px;right:14px;bottom:calc(16px + env(safe-area-inset-bottom,0px));background:var(--ink);color:#0e1726;padding:12px 14px;border-radius:10px;opacity:0;pointer-events:none;transition:opacity .2s}
 #toast.on{opacity:1}
+.gamegrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.gamecard{background:var(--card);border:1px solid var(--line);border-radius:13px;padding:14px;min-height:116px}
+.gamecard .emoji{font-size:30px}.gamecard .title{font-size:15px;margin:5px 0}.gamecard button{width:100%;margin-top:9px;padding:9px}
+.game-action{width:100%;margin-top:8px}.game-big{font-size:28px;font-weight:800;text-align:center;margin:14px 0;color:var(--gold)}
+.game-options{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}.game-options button{padding:13px 6px}
+@media(min-width:600px){.gamegrid{grid-template-columns:repeat(3,minmax(0,1fr))}}
 </style>
 </head>
 <body>
@@ -63,10 +69,17 @@ summary{font-weight:700;cursor:pointer;padding:8px 0}
 <main id="list"><div class="empty">Yuklanmoqda...</div></main>
 <main id="hist" hidden></main>
 <main id="gameview" hidden>
-  <div class="card" style="text-align:center;padding:32px 16px">
-    <div style="font-size:56px">🎮</div>
-    <div class="title" style="margin-top:8px">O'yinlar bo'limi</div>
-    <div class="state">Tez orada shu yerda o'yinlar paydo bo'ladi.</div>
+  <div class="card">
+    <div class="title">🎮 MILLIONER ARENA</div>
+    <div class="state">10 ta mini-o'yin. Hozircha mashq rejimi — coin tikilmaydi.</div>
+    <div class="state">Raqib bilan coinli duelni yoqish uchun server tomonda ham o'yin mexanikasi va natijani tekshirish qo'shilishi kerak.</div>
+  </div>
+  <div id="gamegrid" class="gamegrid"></div>
+  <div id="gameplay" class="card" hidden>
+    <div class="top"><div class="title" id="game-title">O'yin</div><button class="tab" onclick="closeGame()">Yopish</button></div>
+    <div class="state" id="game-desc"></div>
+    <div id="game-area" style="margin-top:14px"></div>
+    <div id="game-result" class="state" style="margin-top:12px"></div>
   </div>
 </main>
 <main id="topup" hidden>
@@ -206,6 +219,78 @@ async function giveCoin() {
   } catch (e) { toast(e.message); }
 }
 
+
+const GAME_LIST = [
+  ["reaction","⚡","Reaksiya","Yashil signal chiqqanda tez bosing"],
+  ["math","🧠","Matematika","Misolni tez va to'g'ri yeching"],
+  ["memory","🧩","Xotira","Raqamlar ketma-ketligini eslab qoling"],
+  ["guess","🎯","Sonni top","Yashirin sonni topishga harakat qiling"],
+  ["rps","✊","Tosh-qaychi-qog'oz","Kompyuterga qarshi o'ynang"],
+  ["evenodd","🔢","Juft yoki toq","Son juftmi yoki toqmi?"],
+  ["color","🎨","Rang sinovi","So'zdagi rangni emas, rangni tanlang"],
+  ["count","🍎","Tez sanash","Belgilar sonini aniqlang"],
+  ["higher","📈","Yuqori yoki past","Keyingi son kattaroqmi yoki kichik?"],
+  ["quiz","🏆","Bilimlar bellashuvi","Qisqa savollarga javob bering"]
+];
+let activeGame = null, gameTimer = null, gameScore = 0, gameStep = 0, gameData = {};
+function drawGames(){
+  document.getElementById("gamegrid").innerHTML = GAME_LIST.map(g =>
+    `<div class="gamecard"><div class="emoji">${g[1]}</div><div class="title">${g[2]}</div><div class="state">${g[3]}</div><button onclick="openGame('${g[0]}')">O'ynash</button></div>`
+  ).join("");
+}
+function openGame(id){
+  clearTimeout(gameTimer); activeGame=id; gameScore=0; gameStep=0; gameData={};
+  const g=GAME_LIST.find(x=>x[0]===id);
+  document.getElementById("gameplay").hidden=false;
+  document.getElementById("game-title").textContent=g[1]+" "+g[2];
+  document.getElementById("game-desc").textContent=g[3];
+  document.getElementById("game-result").textContent="";
+  startMiniGame();
+  document.getElementById("gameplay").scrollIntoView({behavior:"smooth",block:"start"});
+}
+function closeGame(){clearTimeout(gameTimer);document.getElementById("gameplay").hidden=true;}
+function gameArea(html){document.getElementById("game-area").innerHTML=html;}
+function gameDone(msg){clearTimeout(gameTimer);gameArea('<div class="game-big">'+gameScore+' ball</div><button class="game-action" onclick="openGame(\''+activeGame+'\')">Qayta o\'ynash</button>');document.getElementById("game-result").textContent=msg;}
+function startMiniGame(){
+ const area=document.getElementById("game-area");
+ if(activeGame==="reaction"){
+   area.innerHTML='<div class="game-big" id="reactbox">Tayyorlaning...</div><button class="game-action" id="reactbtn" disabled>KUTING</button>';
+   let fired=false, start=0;
+   const delay=1200+Math.random()*2500;
+   gameTimer=setTimeout(()=>{fired=true;start=Date.now();document.getElementById("reactbox").textContent="HOZIR!";const b=document.getElementById("reactbtn");b.disabled=false;b.textContent="BOSING";b.onclick=()=>{if(!fired)return;gameScore=Math.max(0,1000-(Date.now()-start));gameDone("Reaksiya vaqtingiz: "+(Date.now()-start)+" ms");};},delay);
+   document.getElementById("reactbtn").onclick=()=>{if(!fired){clearTimeout(gameTimer);gameDone("Juda erta bosdingiz!");}};
+ } else if(activeGame==="math"){
+   const a=2+Math.floor(Math.random()*20),b=2+Math.floor(Math.random()*20),op=Math.random()<.5?"+":"×",ans=op==="+"?a+b:a*b;
+   area.innerHTML=`<div class="game-big">${a} ${op} ${b} = ?</div><div class="game-options">${[ans,ans+2,ans-1,ans+5].sort(()=>Math.random()-.5).map(n=>`<button onclick="answerGame(${n===ans})">${n}</button>`).join("")}</div>`;
+   gameData={ans}; 
+ } else if(activeGame==="guess"){
+   gameData.secret=1+Math.floor(Math.random()*20);area.innerHTML='<div class="game-big">1 dan 20 gacha son</div><div class="row"><input id="guessval" type="number" min="1" max="20" placeholder="Son"><button onclick="guessGame()">Tekshirish</button></div>';
+ } else if(activeGame==="rps"){
+   area.innerHTML='<div class="game-big">Tanlang</div><div class="game-options"><button onclick="rpsGame(0)">✊ Tosh</button><button onclick="rpsGame(1)">✌️ Qaychi</button><button onclick="rpsGame(2)">✋ Qog\'oz</button></div>';
+ } else if(activeGame==="evenodd"){
+   gameData.n=1+Math.floor(Math.random()*99);area.innerHTML=`<div class="game-big">${gameData.n}</div><div class="game-options"><button onclick="answerGame(${gameData.n%2===0})">Juft</button><button onclick="answerGame(${gameData.n%2===1})">Toq</button></div>`;
+ } else if(activeGame==="color"){
+   const colors=[["QIZIL","#ff5555"],["KO'K","#4c9aff"],["YASHIL","#38d996"],["SARIQ","#f5c542"]];
+   const word=colors[Math.floor(Math.random()*4)],ink=colors[Math.floor(Math.random()*4)];
+   gameData.correct=word[1]===ink[1];area.innerHTML=`<div class="game-big" style="color:${ink[1]}">${word[0]}</div><div class="game-options"><button onclick="answerGame(${gameData.correct})">Rang mos</button><button onclick="answerGame(${!gameData.correct})">Rang boshqa</button></div>`;
+ } else if(activeGame==="count"){
+   const n=3+Math.floor(Math.random()*8);gameData.n=n;area.innerHTML=`<div class="game-big">${"🍎 ".repeat(n)}</div><div class="game-options">${[n,n+1,n-1,n+2].sort(()=>Math.random()-.5).map(x=>`<button onclick="answerGame(${x===n})">${x}</button>`).join("")}</div>`;
+ } else if(activeGame==="higher"){
+   const a=1+Math.floor(Math.random()*50),b=1+Math.floor(Math.random()*50);gameData.correct=b>a;area.innerHTML=`<div class="game-big">${a} ➜ ${b} ?</div><div class="game-options"><button onclick="answerGame(${b>a})">Yuqori</button><button onclick="answerGame(${b<a})">Past</button></div>`;
+ } else if(activeGame==="memory"){
+   const seq=Array.from({length:4},()=>1+Math.floor(Math.random()*9));gameData.seq=seq;
+   area.innerHTML=`<div class="game-big" id="memseq">${seq.join(" · ")}</div><div class="state">Ketma-ketlikni eslab qoling...</div>`;
+   gameTimer=setTimeout(()=>{const el=document.getElementById("memseq");if(!el)return;el.textContent="? · ? · ? · ?";area.innerHTML='<div class="row"><input id="memval" placeholder="Masalan: 1234" inputmode="numeric"><button onclick="memoryGame()">Tekshirish</button></div>';},1800);
+ } else if(activeGame==="quiz"){
+   const qs=[["O'zbekiston poytaxti?","Toshkent",["Samarqand","Toshkent","Buxoro","Xiva"]],["Bir haftada necha kun?","7",["5","6","7","8"]],["10 × 5 nechchi?","50",["15","40","50","60"]]];
+   const q=qs[Math.floor(Math.random()*qs.length)];gameData.answer=q[1];area.innerHTML=`<div class="game-big" style="font-size:21px">${q[0]}</div><div class="game-options">${q[2].map(x=>`<button onclick="answerGame('${x}'==='${q[1]}')">${x}</button>`).join("")}</div>`;
+ }
+}
+function answerGame(ok){gameScore=ok?100:0;gameDone(ok?"To'g'ri javob!":"Noto'g'ri javob.");}
+function guessGame(){const v=Number(document.getElementById("guessval").value);if(!v)return toast("Son kiriting");gameScore=v===gameData.secret?100:0;gameDone(v===gameData.secret?"Topdingiz!":"Yashirin son: "+gameData.secret);}
+function rpsGame(v){const c=Math.floor(Math.random()*3),names=["Tosh","Qaychi","Qog'oz"];const win=(v-c+3)%3===1;gameScore=v===c?50:win?100:0;gameDone("Siz: "+names[v]+". Raqib: "+names[c]+". "+(v===c?"Durrang":win?"Siz yutdingiz":"Yutqazdingiz"));}
+function memoryGame(){const v=(document.getElementById("memval").value||"").replace(/\D/g,"");const ok=v===gameData.seq.join("");gameScore=ok?100:0;gameDone(ok?"Ketma-ketlikni topdingiz!":"To'g'ri javob: "+gameData.seq.join(""));}
+
 try { tg.setHeaderColor("#0e1726"); tg.setBackgroundColor("#0e1726"); } catch (e) {}
 const me0 = tg.initDataUnsafe && tg.initDataUnsafe.user;
 if (me0 && me0.first_name)
@@ -255,6 +340,7 @@ async function loadHist() {
   } catch (e) { box.innerHTML = '<div class="empty">' + esc(e.message) + "</div>"; }
 }
 
+drawGames();
 load();
 setInterval(tick, 1000);
 setInterval(() => { load(); if (tab === "his") loadHist(); }, 15000);

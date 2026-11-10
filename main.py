@@ -35,6 +35,21 @@ def init_db():
         c.execute("""CREATE TABLE IF NOT EXISTS topups(
             id BIGSERIAL PRIMARY KEY, user_id BIGINT, coins BIGINT,
             status TEXT DEFAULT 'pending', ts BIGINT)""")
+        c.execute("""CREATE TABLE IF NOT EXISTS game_rooms(
+            id BIGSERIAL PRIMARY KEY,
+            game_code TEXT NOT NULL,
+            stake BIGINT NOT NULL,
+            player1 BIGINT NOT NULL,
+            player2 BIGINT,
+            score1 BIGINT,
+            score2 BIGINT,
+            winner BIGINT,
+            status TEXT NOT NULL DEFAULT 'waiting',
+            created_at BIGINT NOT NULL,
+            finished_at BIGINT
+        )""")
+        c.execute("""CREATE INDEX IF NOT EXISTS game_rooms_waiting_idx
+            ON game_rooms(game_code, status, created_at)""")
 
 
 def tg(method, **params):
@@ -324,3 +339,175 @@ def give(g: Give, x_init_data: str = Header()):
                   "ON CONFLICT(id) DO UPDATE SET balance=users.balance+%s",
                   (g.user_id, "", g.amount, g.amount))
     return {"ok": True}
+
+# -------------------- COIN GAMES (PLAYER VS PLAYER) --------------------
+
+GAME_LIST = [
+    {"code": "reaction", "title": "⚡ Reaksiya"},
+    {"code": "math", "title": "🧠 Matematika"},
+    {"code": "memory", "title": "🧩 Xotira"},
+    {"code": "guess", "title": "🎯 Sonni top"},
+    {"code": "rps", "title": "✊ Tosh-qaychi-qog'oz"},
+    {"code": "evenodd", "title": "🔢 Juft yoki toq"},
+    {"code": "color", "title": "🎨 Rang sinovi"},
+    {"code": "count", "title": "🍎 Tez sanash"},
+    {"code": "higher", "title": "📈 Yuqori yoki past"},
+    {"code": "quiz", "title": "🏆 Bilimlar bellashuvi"},
+]
+GAME_CODES = {g["code"] for g in GAME_LIST}
+
+
+class JoinGame(BaseModel):
+    game_code: str
+    stake: int
+
+
+class GameScore(BaseModel):
+    room_id: int
+    score: int
+
+
+@app.get("/api/games")
+def games(x_init_data: str = Header()):
+    uid = auth(x_init_data)
+    with db() as c:
+        rows = c.execute("""
+            SELECT id, game_code, stake, player1, player2, status, created_at
+            FROM game_rooms
+            WHERE status IN ('waiting', 'playing')
+              AND (player1=%s OR player2=%s)
+            ORDER BY id DESC LIMIT 20
+        """, (uid, uid)).fetchall()
+    return {"games": GAME_LIST, "my_rooms": [dict(r) for r in rows]}
+
+
+@app.post("/api/games/join")
+def join_game(g: JoinGame, x_init_data: str = Header()):
+    uid = auth(x_init_data)
+    if g.game_code not in GAME_CODES:
+        raise HTTPException(400, "Bunday o'yin mavjud emas")
+    if g.stake < 10 or g.stake > 1_000_000:
+        raise HTTPException(400, "Tikish 10 dan 1 000 000 coin gacha bo'lishi kerak")
+
+    with db() as c:
+        # Bir o'yin turida bir vaqtda navbatga qo'shilishlarni ketma-ket bajaradi.
+        c.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (g.game_code,))
+        user = c.execute("SELECT balance FROM users WHERE id=%s FOR UPDATE", (uid,)).fetchone()
+        if not user:
+            raise HTTPException(401, "Foydalanuvchi topilmadi")
+        active = c.execute("""
+            SELECT id FROM game_rooms
+            WHERE status IN ('waiting','playing')
+              AND (player1=%s OR player2=%s)
+            LIMIT 1 FOR UPDATE
+        """, (uid, uid)).fetchone()
+        if active:
+            raise HTTPException(400, "Avval joriy o'yiningizni yakunlang")
+        if user["balance"] < g.stake:
+            raise HTTPException(400, "Coin yetarli emas")
+
+        opponent = c.execute("""
+            SELECT id, player1, stake FROM game_rooms
+            WHERE game_code=%s AND status='waiting' AND stake=%s
+              AND player1<>%s
+            ORDER BY created_at, id
+            LIMIT 1 FOR UPDATE
+        """, (g.game_code, g.stake, uid)).fetchone()
+
+        c.execute("UPDATE users SET balance=balance-%s WHERE id=%s", (g.stake, uid))
+        now = int(time.time())
+        if opponent:
+            c.execute("""
+                UPDATE game_rooms
+                SET player2=%s, status='playing'
+                WHERE id=%s
+            """, (uid, opponent["id"]))
+            return {"ok": True, "room_id": opponent["id"], "status": "playing",
+                    "game_code": g.game_code, "stake": g.stake,
+                    "message": "Raqib topildi! O'yinni boshlang."}
+
+        row = c.execute("""
+            INSERT INTO game_rooms(game_code, stake, player1, status, created_at)
+            VALUES(%s,%s,%s,'waiting',%s) RETURNING id
+        """, (g.game_code, g.stake, uid, now)).fetchone()
+        return {"ok": True, "room_id": row["id"], "status": "waiting",
+                "game_code": g.game_code, "stake": g.stake,
+                "message": "Raqib kutilmoqda. Coin vaqtincha band qilindi."}
+
+
+@app.get("/api/games/room/{room_id}")
+def game_room(room_id: int, x_init_data: str = Header()):
+    uid = auth(x_init_data)
+    with db() as c:
+        r = c.execute("""
+            SELECT id, game_code, stake, player1, player2, score1, score2,
+                   winner, status, created_at, finished_at
+            FROM game_rooms WHERE id=%s
+        """, (room_id,)).fetchone()
+    if not r or uid not in (r["player1"], r["player2"]):
+        raise HTTPException(404, "O'yin topilmadi")
+    return dict(r)
+
+
+@app.post("/api/games/score")
+def submit_game_score(s: GameScore, x_init_data: str = Header()):
+    uid = auth(x_init_data)
+    if s.score < 0 or s.score > 1_000_000_000:
+        raise HTTPException(400, "Natija noto'g'ri")
+
+    with db() as c:
+        r = c.execute("SELECT * FROM game_rooms WHERE id=%s FOR UPDATE",
+                      (s.room_id,)).fetchone()
+        if not r or r["status"] != "playing" or uid not in (r["player1"], r["player2"]):
+            raise HTTPException(400, "Faol o'yin topilmadi")
+        if uid == r["player1"]:
+            if r["score1"] is not None:
+                raise HTTPException(400, "Natijangiz avval yuborilgan")
+            c.execute("UPDATE game_rooms SET score1=%s WHERE id=%s", (s.score, s.room_id))
+        else:
+            if r["score2"] is not None:
+                raise HTTPException(400, "Natijangiz avval yuborilgan")
+            c.execute("UPDATE game_rooms SET score2=%s WHERE id=%s", (s.score, s.room_id))
+
+        updated = c.execute("SELECT * FROM game_rooms WHERE id=%s FOR UPDATE",
+                            (s.room_id,)).fetchone()
+        if updated["score1"] is None or updated["score2"] is None:
+            return {"ok": True, "status": "waiting_result",
+                    "message": "Raqib natijasi kutilmoqda"}
+
+        a, b = updated["score1"], updated["score2"]
+        if a == b:
+            # Durang: ikkala o'yinchiga tikilgan coin qaytariladi.
+            c.execute("UPDATE users SET balance=balance+%s WHERE id IN (%s,%s)",
+                      (updated["stake"], updated["player1"], updated["player2"]))
+            c.execute("""
+                UPDATE game_rooms SET status='draw', finished_at=%s WHERE id=%s
+            """, (int(time.time()), s.room_id))
+            return {"ok": True, "status": "draw", "message": "Durang! Coin qaytarildi."}
+
+        winner = updated["player1"] if a > b else updated["player2"]
+        # 1.8x jami to'lov: g'olib o'z tikishining 1.8 baravarini oladi.
+        payout = (updated["stake"] * 18) // 10
+        c.execute("UPDATE users SET balance=balance+%s WHERE id=%s", (payout, winner))
+        c.execute("""
+            UPDATE game_rooms SET winner=%s, status='finished', finished_at=%s
+            WHERE id=%s
+        """, (winner, int(time.time()), s.room_id))
+        return {"ok": True, "status": "finished", "winner": winner,
+                "payout": payout, "message": "O'yin yakunlandi"}
+
+
+@app.post("/api/games/cancel/{room_id}")
+def cancel_game(room_id: int, x_init_data: str = Header()):
+    uid = auth(x_init_data)
+    with db() as c:
+        r = c.execute("SELECT * FROM game_rooms WHERE id=%s FOR UPDATE",
+                      (room_id,)).fetchone()
+        if not r or r["player1"] != uid or r["status"] != "waiting":
+            raise HTTPException(400, "Bu o'yinni bekor qilib bo'lmaydi")
+        c.execute("UPDATE users SET balance=balance+%s WHERE id=%s",
+                  (r["stake"], uid))
+        c.execute("UPDATE game_rooms SET status='cancelled', finished_at=%s WHERE id=%s",
+                  (int(time.time()), room_id))
+    return {"ok": True, "message": "O'yin bekor qilindi, coin qaytarildi"}
+
