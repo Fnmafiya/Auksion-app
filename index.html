@@ -6,7 +6,7 @@
 <title>Auksion</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
-:root{--bg:#e8edf2;--card:#fff;--ink:#14232e;--mute:#5d6f7d;--line:#d3dce4;--acc:#3b3fd8;--gold:#b97a00;--ok:#1b7f4b;--bad:#c0392b}
+:root{color-scheme:dark;--bg:#0e1726;--card:#17233a;--ink:#f2f5fa;--mute:#8fa0b8;--line:#263650;--acc:#f5b400;--gold:#f5b400;--ok:#3ddc97;--bad:#ff6b6b}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;padding:0 14px calc(24px + env(safe-area-inset-bottom,0px))}
 header{position:sticky;top:0;background:var(--bg);padding:14px 0 10px;display:flex;justify-content:space-between;align-items:baseline;z-index:5}
@@ -18,28 +18,42 @@ h1{font-size:22px;margin:0}
 .title{font-weight:700;font-size:18px}
 .time{font-variant-numeric:tabular-nums;color:var(--mute);white-space:nowrap}
 .time.hot{color:var(--bad);font-weight:700}
-.price{font-size:26px;font-weight:800;margin:8px 0 2px}
+.price{font-size:26px;font-weight:800;margin:8px 0 2px;color:var(--gold)}
 .price span{font-size:14px;font-weight:500;color:var(--mute)}
 .state{font-size:14px;margin-bottom:10px;color:var(--mute)}
 .state.win{color:var(--ok);font-weight:700}
 .row{display:flex;gap:8px}
-input{flex:1;min-width:0;font:inherit;padding:11px 12px;border:1px solid var(--line);border-radius:10px;background:#fff;color:var(--ink)}
+input{flex:1;min-width:0;font:inherit;padding:11px 12px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink)}
 input:focus-visible,button:focus-visible{outline:2px solid var(--acc);outline-offset:1px}
-button{font:inherit;font-weight:700;padding:11px 16px;border:0;border-radius:10px;background:var(--acc);color:#fff;cursor:pointer}
+button{font:inherit;font-weight:700;padding:11px 16px;border:0;border-radius:10px;background:var(--acc);color:#1a1300;cursor:pointer}
 button:disabled{opacity:.5}
 .empty{text-align:center;color:var(--mute);padding:40px 10px}
 details{margin-top:18px}
 summary{font-weight:700;cursor:pointer;padding:8px 0}
 .adm{display:grid;gap:8px;margin-bottom:14px}
 .tabs{display:flex;gap:8px;margin-bottom:12px}
-.tab{flex:1;padding:11px 6px;background:#fff;color:var(--ink);border:1px solid var(--line)}
-.tab.on{background:var(--acc);color:#fff;border-color:var(--acc)}
-#toast{position:fixed;left:14px;right:14px;bottom:calc(16px + env(safe-area-inset-bottom,0px));background:var(--ink);color:#fff;padding:12px 14px;border-radius:10px;opacity:0;pointer-events:none;transition:opacity .2s}
+.tab{flex:1;padding:11px 6px;background:var(--card);color:var(--ink);border:1px solid var(--line)}
+.tab.on{background:var(--acc);color:#1a1300;border-color:var(--acc)}
+#splash{position:fixed;inset:0;z-index:20;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:24px;background:radial-gradient(circle at 50% 30%,#22345a,#0e1726 70%);transition:opacity .4s}
+#splash.off{opacity:0;pointer-events:none}
+.hammer{font-size:76px;animation:bob 1.6s ease-in-out infinite}
+@keyframes bob{50%{transform:rotate(-18deg) translateY(-6px)}}
+#splash h2{font-size:34px;line-height:1.15;margin:16px 0 10px;color:var(--gold)}
+#splash p{color:var(--mute);margin:0 0 30px;max-width:280px}
+#splash button{padding:14px 44px;font-size:18px;border-radius:14px}
+@media (prefers-reduced-motion:reduce){.hammer{animation:none}}
+#toast{position:fixed;left:14px;right:14px;bottom:calc(16px + env(safe-area-inset-bottom,0px));background:var(--ink);color:#0e1726;padding:12px 14px;border-radius:10px;opacity:0;pointer-events:none;transition:opacity .2s}
 #toast.on{opacity:1}
 </style>
 </head>
 <body>
-<header><h1>Auksion</h1><div class="bal"><small>Balans</small><span id="bal">0</span> coin</div></header>
+<div id="splash">
+  <div class="hammer">🔨</div>
+  <h2>Auksionga<br>xush kelibsiz!</h2>
+  <p id="hello">Eng yaxshi narxda g'olib bo'ling</p>
+  <button onclick="closeSplash()">Boshlash</button>
+</div>
+<header><h1>🔨 Auksion</h1><div class="bal"><small>Balans</small><span id="bal">0</span> coin</div></header>
 <div class="tabs">
   <button class="tab on" id="t-act" onclick="show('act')">Faol</button>
   <button class="tab" id="t-his" onclick="show('his')">Tugagan</button>
@@ -179,6 +193,13 @@ async function giveCoin() {
     toast("Coin berildi"); load();
   } catch (e) { toast(e.message); }
 }
+
+try { tg.setHeaderColor("#0e1726"); tg.setBackgroundColor("#0e1726"); } catch (e) {}
+const me0 = tg.initDataUnsafe && tg.initDataUnsafe.user;
+if (me0 && me0.first_name)
+  document.getElementById("hello").textContent = "Salom, " + me0.first_name + "! Eng yaxshi narxda g'olib bo'ling";
+function closeSplash() { document.getElementById("splash").classList.add("off"); }
+setTimeout(closeSplash, 3500);
 
 let tab = "act";
 function show(t) {
