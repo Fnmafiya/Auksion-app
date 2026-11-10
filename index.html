@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Auksion</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+:root{--bg:#e8edf2;--card:#fff;--ink:#14232e;--mute:#5d6f7d;--line:#d3dce4;--acc:#3b3fd8;--gold:#b97a00;--ok:#1b7f4b;--bad:#c0392b}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;padding:0 14px calc(24px + env(safe-area-inset-bottom,0px))}
+header{position:sticky;top:0;background:var(--bg);padding:14px 0 10px;display:flex;justify-content:space-between;align-items:baseline;z-index:5}
+h1{font-size:22px;margin:0}
+.bal{font-size:18px;font-weight:700;color:var(--gold)}
+.bal small{font-weight:500;color:var(--mute);margin-right:4px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:12px}
+.top{display:flex;justify-content:space-between;gap:10px}
+.title{font-weight:700;font-size:18px}
+.time{font-variant-numeric:tabular-nums;color:var(--mute);white-space:nowrap}
+.time.hot{color:var(--bad);font-weight:700}
+.price{font-size:26px;font-weight:800;margin:8px 0 2px}
+.price span{font-size:14px;font-weight:500;color:var(--mute)}
+.state{font-size:14px;margin-bottom:10px;color:var(--mute)}
+.state.win{color:var(--ok);font-weight:700}
+.row{display:flex;gap:8px}
+input{flex:1;min-width:0;font:inherit;padding:11px 12px;border:1px solid var(--line);border-radius:10px;background:#fff;color:var(--ink)}
+input:focus-visible,button:focus-visible{outline:2px solid var(--acc);outline-offset:1px}
+button{font:inherit;font-weight:700;padding:11px 16px;border:0;border-radius:10px;background:var(--acc);color:#fff;cursor:pointer}
+button:disabled{opacity:.5}
+.empty{text-align:center;color:var(--mute);padding:40px 10px}
+details{margin-top:18px}
+summary{font-weight:700;cursor:pointer;padding:8px 0}
+.adm{display:grid;gap:8px;margin-bottom:14px}
+#toast{position:fixed;left:14px;right:14px;bottom:calc(16px + env(safe-area-inset-bottom,0px));background:var(--ink);color:#fff;padding:12px 14px;border-radius:10px;opacity:0;pointer-events:none;transition:opacity .2s}
+#toast.on{opacity:1}
+</style>
+</head>
+<body>
+<header><h1>Auksion</h1><div class="bal"><small>Balans</small><span id="bal">0</span> coin</div></header>
+<main id="list"><div class="empty">Yuklanmoqda...</div></main>
+
+<details id="admin" hidden>
+  <summary>Admin paneli</summary>
+  <div class="adm">
+    <input id="a-title" placeholder="Auksion nomi">
+    <input id="a-price" type="number" inputmode="numeric" placeholder="Boshlang'ich narx (coin)">
+    <input id="a-min" type="number" inputmode="numeric" placeholder="Davomiyligi (daqiqa)">
+    <button onclick="addAuction()">Auksion yaratish</button>
+  </div>
+  <div class="adm">
+    <input id="g-id" type="number" inputmode="numeric" placeholder="Foydalanuvchi Telegram ID">
+    <input id="g-amt" type="number" inputmode="numeric" placeholder="Coin miqdori">
+    <button onclick="giveCoin()">Coin berish</button>
+  </div>
+</details>
+<div id="toast"></div>
+
+<script>
+const tg = window.Telegram.WebApp;
+tg.ready(); tg.expand();
+const HDR = {"Content-Type": "application/json", "X-Init-Data": tg.initData};
+let items = [];
+
+async function api(path, body) {
+  const opt = body ? {method: "POST", headers: HDR, body: JSON.stringify(body)} : {headers: HDR};
+  const r = await fetch(path, opt);
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(typeof j.detail === "string" ? j.detail : "Xatolik yuz berdi");
+  return j;
+}
+
+function toast(msg) {
+  const t = document.getElementById("toast");
+  t.textContent = msg; t.classList.add("on");
+  setTimeout(() => t.classList.remove("on"), 2500);
+}
+
+const esc = s => String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+function fmt(sec) {
+  if (sec <= 0) return "Tugadi";
+  const h = Math.floor(sec / 3600), m = Math.floor(sec % 3600 / 60), s = sec % 60;
+  return (h ? h + ":" : "") + String(m).padStart(2, "0") + ":" + String(s).padStart(2, "0");
+}
+
+function render() {
+  const keep = {};
+  document.querySelectorAll("[data-amt]").forEach(i => keep[i.dataset.amt] = i.value);
+  const box = document.getElementById("list");
+  if (!items.length) { box.innerHTML = '<div class="empty">Hozircha faol auksion yo\'q</div>'; return; }
+  box.innerHTML = items.map(a => {
+    const next = a.has_bids ? a.price + 1 : a.price;
+    const state = a.is_top ? '<div class="state win">Siz yetakchisiz</div>'
+      : '<div class="state">' + (a.has_bids ? "Stavka qo'yilgan" : "Hali stavka yo'q") + "</div>";
+    return `<div class="card">
+      <div class="top"><div class="title">${esc(a.title)}</div><div class="time" data-end="${a.ends_at}"></div></div>
+      <div class="price">${a.price} <span>coin</span></div>${state}
+      <div class="row">
+        <input type="number" inputmode="numeric" data-amt="${a.id}" value="${keep[a.id] || next}" min="${next}">
+        <button onclick="bid(${a.id}, this)">Stavka qo'yish</button>
+      </div></div>`;
+  }).join("");
+  tick();
+}
+
+function tick() {
+  const now = Math.floor(Date.now() / 1000);
+  let ended = false;
+  document.querySelectorAll("[data-end]").forEach(el => {
+    const left = el.dataset.end - now;
+    el.textContent = fmt(left);
+    el.classList.toggle("hot", left > 0 && left <= 60);
+    if (left <= 0) ended = true;
+  });
+  if (ended) load();
+}
+
+async function load() {
+  try {
+    const [me, list] = await Promise.all([api("/api/me"), api("/api/auctions")]);
+    document.getElementById("bal").textContent = me.balance;
+    document.getElementById("admin").hidden = !me.is_admin;
+    items = list; render();
+  } catch (e) {
+    document.getElementById("list").innerHTML = '<div class="empty">' + esc(e.message) + "</div>";
+  }
+}
+
+async function bid(id, btn) {
+  const amount = parseInt(document.querySelector(`[data-amt="${id}"]`).value, 10);
+  if (!amount) return toast("Miqdorni kiriting");
+  btn.disabled = true;
+  try {
+    await api("/api/bid", {auction_id: id, amount});
+    tg.HapticFeedback && tg.HapticFeedback.notificationOccurred("success");
+    toast("Stavka qabul qilindi");
+    document.querySelectorAll("[data-amt]").forEach(i => i.value = "");
+    await load();
+  } catch (e) { toast(e.message); btn.disabled = false; }
+}
+
+async function addAuction() {
+  try {
+    await api("/api/admin/auction", {
+      title: document.getElementById("a-title").value.trim(),
+      start_price: parseInt(document.getElementById("a-price").value, 10),
+      minutes: parseInt(document.getElementById("a-min").value, 10)
+    });
+    toast("Auksion yaratildi"); load();
+  } catch (e) { toast(e.message); }
+}
+
+async function giveCoin() {
+  try {
+    await api("/api/admin/give", {
+      user_id: parseInt(document.getElementById("g-id").value, 10),
+      amount: parseInt(document.getElementById("g-amt").value, 10)
+    });
+    toast("Coin berildi"); load();
+  } catch (e) { toast(e.message); }
+}
+
+load();
+setInterval(tick, 1000);
+setInterval(load, 15000);
+</script>
+</body>
+</html>
