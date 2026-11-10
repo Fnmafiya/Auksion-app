@@ -36,6 +36,13 @@ def init_db():
             user_id BIGINT, amount BIGINT, ts BIGINT)""")
         c.execute("ALTER TABLE auctions ADD COLUMN IF NOT EXISTS image TEXT")
         c.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS referrer BIGINT")
+        c.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS wins BIGINT DEFAULT 0")
+        c.execute("""CREATE TABLE IF NOT EXISTS tasks(
+            id BIGSERIAL PRIMARY KEY, title TEXT, descr TEXT, reward BIGINT,
+            url TEXT, active BOOLEAN DEFAULT TRUE)""")
+        c.execute("""CREATE TABLE IF NOT EXISTS task_claims(
+            id BIGSERIAL PRIMARY KEY, task_id BIGINT, user_id BIGINT,
+            status TEXT DEFAULT 'pending', ts BIGINT, UNIQUE(task_id, user_id))""")
         c.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS ref_paid BOOLEAN DEFAULT FALSE")
         c.execute("""CREATE TABLE IF NOT EXISTS topups(
             id BIGSERIAL PRIMARY KEY, user_id BIGINT, coins BIGINT,
@@ -77,6 +84,8 @@ def close_expired():
     for r in rows:
         if r["top_user"] is None:
             continue
+        with db() as c:
+            c.execute("UPDATE users SET wins=COALESCE(wins,0)+1 WHERE id=%s", (r["top_user"],))
         notify(r["top_user"],
                f"Tabriklaymiz! Siz {r['title']} auksionida {r['top_bid']} coin bilan yutdingiz.")
         for admin in ADMINS:
@@ -141,9 +150,10 @@ def health():
 def me(x_init_data: str = Header()):
     uid = auth(x_init_data)
     with db() as c:
-        row = c.execute("SELECT balance FROM users WHERE id=%s", (uid,)).fetchone()
-    return {"id": uid, "balance": row["balance"], "is_admin": uid in ADMINS,
-            "friends_mode": FRIENDS_MODE}
+        row = c.execute("SELECT balance, COALESCE(wins,0) AS wins FROM users WHERE id=%s",
+                        (uid,)).fetchone()
+    return {"id": uid, "balance": row["balance"], "wins": row["wins"],
+            "is_admin": uid in ADMINS, "friends_mode": FRIENDS_MODE}
 
 
 @app.get("/api/auctions")
@@ -451,11 +461,44 @@ def handle_message(m):
             notify(uid, "Auksionga kirish uchun chat menyusidagi Auksion tugmasini bosing.")
 
 
+def handle_task_cb(cb):
+    action, kid = cb["data"][3:].split(":")
+    kid = int(kid)
+    new = "approved" if action == "ok" else "rejected"
+    with db() as c:
+        k = c.execute("UPDATE task_claims SET status=%s WHERE id=%s AND status='pending' "
+                      "RETURNING task_id, user_id", (new, kid)).fetchone()
+        t = None
+        if k:
+            t = c.execute("SELECT title, reward FROM tasks WHERE id=%s", (k["task_id"],)).fetchone()
+            if new == "approved" and t:
+                c.execute("UPDATE users SET balance=balance+%s WHERE id=%s",
+                          (t["reward"], k["user_id"]))
+    if not k:
+        tg("answerCallbackQuery", callback_query_id=cb["id"],
+           text="Bu so'rov allaqachon ko'rib chiqilgan", show_alert="true")
+        return
+    tg("answerCallbackQuery", callback_query_id=cb["id"], text="Bajarildi")
+    title = t["title"] if t else "vazifa"
+    if new == "approved":
+        notify(k["user_id"], f"Vazifa tasdiqlandi: {title}. Hisobingizga {t['reward']} coin qo'shildi.")
+        status = "TASDIQLANDI"
+    else:
+        notify(k["user_id"], f"Vazifa rad etildi: {title}.")
+        status = "RAD ETILDI"
+    msg = cb.get("message")
+    if msg:
+        tg("editMessageText", chat_id=msg["chat"]["id"], message_id=msg["message_id"],
+           text=f"Vazifa: {title}. {status}")
+
+
 def handle_callback(cb):
     adm = cb["from"]["id"]
     if adm not in ADMINS:
         tg("answerCallbackQuery", callback_query_id=cb["id"], text="Faqat admin", show_alert="true")
         return
+    if cb["data"].startswith("tk_"):
+        return handle_task_cb(cb)
     action, tid = cb["data"].split(":")
     tid = int(tid)
     new = "approved" if action == "ok" else "rejected"
@@ -599,3 +642,81 @@ def clear_ended(x_init_data: str = Header()):
                   "(SELECT id FROM auctions WHERE status='ended')")
         n = c.execute("DELETE FROM auctions WHERE status='ended' RETURNING id").fetchall()
     return {"deleted": len(n)}
+
+
+@app.get("/api/rating")
+def rating(x_init_data: str = Header()):
+    uid = auth(x_init_data)
+    with db() as c:
+        rows = c.execute(
+            "SELECT u.id, u.name, COALESCE(u.wins,0) AS wins, "
+            "(SELECT COUNT(*) FROM users r WHERE r.referrer=u.id AND r.ref_paid) AS refs "
+            "FROM users u ORDER BY wins DESC, refs DESC, u.id LIMIT 100").fetchall()
+    return [{"name": r["name"] or "Foydalanuvchi", "wins": r["wins"],
+             "refs": r["refs"], "me": r["id"] == uid} for r in rows]
+
+
+@app.get("/api/tasks")
+def tasks(x_init_data: str = Header()):
+    uid = auth(x_init_data)
+    with db() as c:
+        rows = c.execute(
+            "SELECT t.id, t.title, t.descr, t.reward, t.url, k.status FROM tasks t "
+            "LEFT JOIN task_claims k ON k.task_id=t.id AND k.user_id=%s "
+            "WHERE t.active ORDER BY t.id DESC", (uid,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+class Claim(BaseModel):
+    id: int
+
+
+@app.post("/api/tasks/claim")
+def claim_task(cl: Claim, x_init_data: str = Header()):
+    uid = auth(x_init_data)
+    with db() as c:
+        t = c.execute("SELECT id, title, reward FROM tasks WHERE id=%s AND active",
+                      (cl.id,)).fetchone()
+        if not t:
+            raise HTTPException(404, "Vazifa topilmadi")
+        k = c.execute("INSERT INTO task_claims(task_id,user_id,ts) VALUES(%s,%s,%s) "
+                      "ON CONFLICT DO NOTHING RETURNING id", (t["id"], uid, int(time.time()))).fetchone()
+        u = c.execute("SELECT name FROM users WHERE id=%s", (uid,)).fetchone()
+    if not k:
+        raise HTTPException(400, "Bu vazifa uchun so'rov allaqachon yuborilgan")
+    kb = json.dumps({"inline_keyboard": [[
+        {"text": "Tasdiqlash", "callback_data": f"tk_ok:{k['id']}"},
+        {"text": "Rad etish", "callback_data": f"tk_no:{k['id']}"}]]})
+    for admin in ADMINS:
+        tg("sendMessage", chat_id=admin, reply_markup=kb,
+           text=f"Vazifa: {t['title']}\nFoydalanuvchi: {u['name']} (ID {uid})\nMukofot: {t['reward']} coin")
+    return {"ok": True}
+
+
+class TaskIn(BaseModel):
+    title: str
+    descr: str = ""
+    reward: int
+    url: str = ""
+
+
+@app.post("/api/admin/task")
+def new_task(t: TaskIn, x_init_data: str = Header()):
+    require_admin(auth(x_init_data))
+    url = t.url.strip()
+    if not t.title.strip() or t.reward < 0 or t.reward > 1_000_000:
+        raise HTTPException(400, "Ma'lumot noto'g'ri")
+    if url and not url.startswith("https://"):
+        raise HTTPException(400, "Havola https:// bilan boshlanishi kerak")
+    with db() as c:
+        c.execute("INSERT INTO tasks(title,descr,reward,url) VALUES(%s,%s,%s,%s)",
+                  (t.title.strip(), t.descr.strip(), t.reward, url or None))
+    return {"ok": True}
+
+
+@app.post("/api/admin/task/delete")
+def del_task(d: Del, x_init_data: str = Header()):
+    require_admin(auth(x_init_data))
+    with db() as c:
+        c.execute("UPDATE tasks SET active=FALSE WHERE id=%s", (d.id,))
+    return {"ok": True}

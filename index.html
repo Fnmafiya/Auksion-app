@@ -45,6 +45,16 @@ summary{font-weight:700;cursor:pointer;padding:8px 0}
 #splash p{color:var(--mute);margin:0 0 30px;max-width:280px}
 #splash button{padding:14px 44px;font-size:18px;border-radius:14px}
 @media (prefers-reduced-motion:reduce){.hammer{animation:none}}
+.ava{width:72px;height:72px;border-radius:50%;margin:0 auto 8px;display:flex;align-items:center;justify-content:center;font-size:30px;font-weight:800;background:var(--acc);color:#1a1300}
+.ava.sm{width:36px;height:36px;font-size:16px;margin:0;flex:none}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.pb{display:flex;flex-direction:column;align-items:center;gap:4px;padding:16px 8px;background:var(--card);color:var(--ink);border:1px solid var(--line)}
+.pb span{font-size:28px}
+.pb[hidden]{display:none}
+.back{background:none;color:var(--mute);padding:10px 0 4px}
+.ru{display:flex;align-items:center;gap:10px;padding:10px 12px}
+.un{flex:1;font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#t-act span{font-size:30px}
 #toast{position:fixed;left:14px;right:14px;bottom:calc(88px + env(safe-area-inset-bottom,0px));background:var(--ink);color:#0e1726;padding:12px 14px;border-radius:10px;opacity:0;pointer-events:none;transition:opacity .2s}
 #toast.on{opacity:1}
 </style>
@@ -58,12 +68,11 @@ summary{font-weight:700;cursor:pointer;padding:8px 0}
 </div>
 <header><h1>🔨 Auksion</h1><div class="bal"><small>Balans</small><span id="bal">0</span> coin</div></header>
 <div class="tabs">
-  <button class="tab on" id="t-act" onclick="show('act')"><span>🔨</span>Auksion</button>
   <button class="tab" id="t-his" onclick="show('his')"><span>🏁</span>Tugagan</button>
+  <button class="tab" id="t-task" onclick="show('task')"><span>✅</span>Vazifalar</button>
+  <button class="tab on" id="t-act" onclick="show('act')"><span>🔨</span>Auksion</button>
   <button class="tab" id="t-game" onclick="show('game')"><span>🎮</span>O'yin</button>
-  <button class="tab" id="t-ref" onclick="show('ref')"><span>🎁</span>Do'stlar</button>
-  <button class="tab" id="t-top" onclick="show('top')"><span>💰</span>To'ldirish</button>
-  <button class="tab" id="t-adm" onclick="show('adm')" hidden><span>🛠</span>Admin</button>
+  <button class="tab" id="t-prof" onclick="show('prof')"><span>👤</span>Profil</button>
 </div>
 <main id="list"><div class="empty">Yuklanmoqda...</div></main>
 <main id="hist" hidden></main>
@@ -75,6 +84,7 @@ summary{font-weight:700;cursor:pointer;padding:8px 0}
   </div>
 </main>
 <main id="refview" hidden>
+  <button class="back" onclick="show('prof')">← Profil</button>
   <div class="card">
     <div class="title">Do'stlarni taklif qiling</div>
     <div class="state">Havolangiz orqali kirgan do'stingiz birinchi stavkasini qo'ysa, sizga <b id="rf-bonus">0</b> coin bonus beriladi.</div>
@@ -86,7 +96,32 @@ summary{font-weight:700;cursor:pointer;padding:8px 0}
   </div>
   <div class="card"><div class="state">Taklif qilinganlar: <b id="rf-n">0</b> · Bonus olingan: <b id="rf-p">0</b></div></div>
 </main>
+<main id="profview" hidden>
+  <div class="card" style="text-align:center;margin-top:12px">
+    <div class="ava" id="pf-ava">?</div>
+    <div class="title" id="pf-name"></div>
+    <div class="state">ID: <span id="pf-id"></span> · Yutgan auksionlar: <b id="pf-wins">0</b></div>
+  </div>
+  <div class="grid">
+    <button class="pb" id="pb-top" onclick="show('top')"><span>💰</span>To'ldirish</button>
+    <button class="pb" onclick="show('ref')"><span>🎁</span>Do'st chaqirish</button>
+    <button class="pb" onclick="show('rate')"><span>🏆</span>Reyting</button>
+    <button class="pb" id="pb-adm" onclick="show('adm')" hidden><span>🛠</span>Admin</button>
+  </div>
+</main>
+<main id="taskview" hidden>
+  <div class="title" style="margin:14px 0 6px">✅ Vazifalar</div>
+  <div class="state" style="margin-bottom:10px">Vazifani bajarib, "Bajardim" ni bosing. Admin tasdiqlagach mukofot coin hisobingizga tushadi.</div>
+  <div id="task-list"></div>
+</main>
+<main id="rateview" hidden>
+  <button class="back" onclick="show('prof')">← Profil</button>
+  <div class="title" style="margin:4px 0 10px">🏆 Reyting</div>
+  <div class="state" style="margin-bottom:10px">Kim ko'proq auksion yutgan: 🏆 g'alabalar, 🎁 taklif qilingan do'stlar.</div>
+  <div id="rate-list"></div>
+</main>
 <main id="topup" hidden>
+  <button class="back" onclick="show('prof')">← Profil</button>
   <div class="card">
     <div class="title">Balansni to'ldirish</div>
     <div class="state">Coin miqdorini kiriting, kartaga o'tkazma qiling va chek rasmini bot chatiga yuboring. Admin tasdiqlagach coin hisobingizga tushadi.</div>
@@ -99,6 +134,7 @@ summary{font-weight:700;cursor:pointer;padding:8px 0}
 </main>
 
 <main id="adminview" hidden>
+  <button class="back" onclick="show('prof')">← Profil</button>
   <div class="title" style="margin-bottom:10px">Admin paneli</div>
   <div class="adm">
     <input id="a-title" placeholder="Auksion nomi">
@@ -117,6 +153,15 @@ summary{font-weight:700;cursor:pointer;padding:8px 0}
     <input id="x-amt" type="number" inputmode="numeric" placeholder="Ayiriladigan coin miqdori">
     <button onclick="takeCoin()">Coin ayirish (bekor qilish)</button>
   </div>
+  <div class="title" style="margin:18px 0 8px">Vazifalar</div>
+  <div class="adm">
+    <input id="tk-title" placeholder="Vazifa nomi">
+    <input id="tk-descr" placeholder="Qisqa tavsif (ixtiyoriy)">
+    <input id="tk-reward" type="number" inputmode="numeric" placeholder="Mukofot (coin)">
+    <input id="tk-url" placeholder="Havola https://... (ixtiyoriy)">
+    <button onclick="addTask()">Vazifa qo'shish</button>
+  </div>
+  <div id="adm-tasks"></div>
   <div class="title" style="margin:18px 0 8px">E'lonlarni boshqarish</div>
   <div id="adm-list"></div>
   <button onclick="clearEnded()" style="width:100%;margin-top:4px">Tugaganlarni hammasini o'chirish</button>
@@ -191,8 +236,13 @@ async function load() {
     const [me, list] = await Promise.all([api("/api/me"), api("/api/auctions")]);
     document.getElementById("bal").textContent = me.balance;
     friends = !!me.friends_mode;
-    document.getElementById("t-top").hidden = friends;
-    document.getElementById("t-adm").hidden = !me.is_admin;
+    document.getElementById("pb-top").hidden = friends;
+    const nm = (me0 && me0.first_name) || "Foydalanuvchi";
+    document.getElementById("pf-name").textContent = nm;
+    document.getElementById("pf-ava").textContent = nm.charAt(0).toUpperCase();
+    document.getElementById("pf-id").textContent = me.id;
+    document.getElementById("pf-wins").textContent = me.wins;
+    document.getElementById("pb-adm").hidden = !me.is_admin;
     items = list; render();
   } catch (e) {
     document.getElementById("list").innerHTML = '<div class="empty">' + esc(e.message) + "</div>";
@@ -311,6 +361,66 @@ function clearEnded() {
   });
 }
 
+async function loadRate() {
+  try {
+    const list = await api("/api/rating");
+    const medal = ["🥇", "🥈", "🥉"];
+    document.getElementById("rate-list").innerHTML = list.map((u, i) =>
+      `<div class="card ru"><div class="ava sm">${esc((u.name || "?").charAt(0).toUpperCase())}</div>
+       <div class="un">${medal[i] || (i + 1) + "."} ${esc(u.name)}${u.me ? " (siz)" : ""}</div>
+       <div class="state" style="margin:0">🏆 ${u.wins} · 🎁 ${u.refs}</div></div>`).join("")
+      || `<div class="empty">Hali foydalanuvchi yo'q</div>`;
+  } catch (e) { toast(e.message); }
+}
+
+function openUrl(u) {
+  if (/^https:\/\/t\.me\//.test(u)) tg.openTelegramLink(u); else tg.openLink(u);
+}
+async function loadTasks() {
+  try {
+    const list = await api("/api/tasks");
+    const st = {pending: "Tekshirilmoqda...", approved: "Bajarilgan ✓", rejected: "Rad etildi"};
+    document.getElementById("task-list").innerHTML = list.length ? list.map(t => `
+      <div class="card"><div class="top"><div class="title">${esc(t.title)}</div><div class="time" style="color:var(--gold)">+${t.reward} coin</div></div>
+      ${t.descr ? `<div class="state">${esc(t.descr)}</div>` : ""}
+      <div class="row">
+        ${t.url ? `<button data-u="${esc(t.url)}" onclick="openUrl(this.dataset.u)" style="background:var(--bg);color:var(--ink);border:1px solid var(--line)">Ochish</button>` : ""}
+        ${t.status ? `<div class="state" style="margin:0;align-self:center">${st[t.status]}</div>` : `<button onclick="claimTask(${t.id}, this)">Bajardim</button>`}
+      </div></div>`).join("") : `<div class="empty">Hozircha vazifa yo'q</div>`;
+  } catch (e) { toast(e.message); }
+}
+async function claimTask(id, btn) {
+  btn.disabled = true;
+  try { await api("/api/tasks/claim", {id}); toast("So'rov adminga yuborildi"); loadTasks(); }
+  catch (e) { toast(e.message); btn.disabled = false; }
+}
+
+async function addTask() {
+  try {
+    await api("/api/admin/task", {
+      title: document.getElementById("tk-title").value,
+      descr: document.getElementById("tk-descr").value,
+      reward: parseInt(document.getElementById("tk-reward").value, 10),
+      url: document.getElementById("tk-url").value
+    });
+    toast("Vazifa qo'shildi"); loadAdminTasks();
+  } catch (e) { toast(e.message); }
+}
+async function loadAdminTasks() {
+  try {
+    const list = await api("/api/tasks");
+    document.getElementById("adm-tasks").innerHTML = list.map(t =>
+      `<div class="card"><div class="top"><div class="title">${esc(t.title)}</div><div class="time">+${t.reward}</div></div>
+       <button onclick="delTask(${t.id})">O'chirish</button></div>`).join("");
+  } catch (e) { toast(e.message); }
+}
+function delTask(id) {
+  ask("Vazifa o'chiriladi. Davom etaymi?", async () => {
+    try { await api("/api/admin/task/delete", {id}); toast("O'chirildi"); loadAdminTasks(); }
+    catch (e) { toast(e.message); }
+  });
+}
+
 try { tg.setHeaderColor("#0e1726"); tg.setBackgroundColor("#0e1726"); } catch (e) {}
 const me0 = tg.initDataUnsafe && tg.initDataUnsafe.user;
 if (me0 && me0.first_name)
@@ -319,15 +429,21 @@ function closeSplash() { document.getElementById("splash").classList.add("off");
 setTimeout(closeSplash, 3500);
 
 let tab = "act";
+const VIEWS = {act: "list", his: "hist", game: "gameview", task: "taskview", prof: "profview",
+  ref: "refview", top: "topup", rate: "rateview", adm: "adminview"};
+const NAV = {act: "act", his: "his", game: "game", task: "task", prof: "prof",
+  ref: "prof", top: "prof", rate: "prof", adm: "prof"};
 function show(t) {
   tab = t;
-  for (const [k, id] of [["act", "list"], ["his", "hist"], ["game", "gameview"], ["ref", "refview"], ["top", "topup"], ["adm", "adminview"]]) {
-    document.getElementById(id).hidden = t !== k;
-    document.getElementById("t-" + k).classList.toggle("on", t === k);
-  }
+  for (const k in VIEWS) document.getElementById(VIEWS[k]).hidden = t !== k;
+  for (const n of ["act", "his", "game", "task", "prof"])
+    document.getElementById("t-" + n).classList.toggle("on", NAV[t] === n);
+  window.scrollTo(0, 0);
   if (t === "his") loadHist();
   if (t === "ref") loadRef();
-  if (t === "adm") loadAdminList();
+  if (t === "task") loadTasks();
+  if (t === "rate") loadRate();
+  if (t === "adm") { loadAdminList(); loadAdminTasks(); }
 }
 
 async function reqTopup(btn) {
