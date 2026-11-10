@@ -126,6 +126,23 @@ def auctions(x_init_data: str = Header()):
     } for r in rows]
 
 
+@app.get("/api/history")
+def history(x_init_data: str = Header()):
+    uid = auth(x_init_data)
+    with db() as c:
+        rows = c.execute(
+            "SELECT a.title, a.start_price, a.top_bid, a.top_user, u.name "
+            "FROM auctions a LEFT JOIN users u ON u.id = a.top_user "
+            "WHERE a.status='ended' ORDER BY a.ends_at DESC LIMIT 20").fetchall()
+    return [{
+        "title": r["title"],
+        "price": max(r["start_price"], r["top_bid"]),
+        "winner": r["name"] or "",
+        "has_winner": r["top_user"] is not None,
+        "is_me": r["top_user"] == uid,
+    } for r in rows]
+
+
 class Bid(BaseModel):
     auction_id: int
     amount: int

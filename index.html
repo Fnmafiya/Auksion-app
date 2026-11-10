@@ -31,13 +31,21 @@ button:disabled{opacity:.5}
 details{margin-top:18px}
 summary{font-weight:700;cursor:pointer;padding:8px 0}
 .adm{display:grid;gap:8px;margin-bottom:14px}
+.tabs{display:flex;gap:8px;margin-bottom:12px}
+.tab{flex:1;background:#fff;color:var(--ink);border:1px solid var(--line)}
+.tab.on{background:var(--acc);color:#fff;border-color:var(--acc)}
 #toast{position:fixed;left:14px;right:14px;bottom:calc(16px + env(safe-area-inset-bottom,0px));background:var(--ink);color:#fff;padding:12px 14px;border-radius:10px;opacity:0;pointer-events:none;transition:opacity .2s}
 #toast.on{opacity:1}
 </style>
 </head>
 <body>
 <header><h1>Auksion</h1><div class="bal"><small>Balans</small><span id="bal">0</span> coin</div></header>
+<div class="tabs">
+  <button class="tab on" id="t-act" onclick="show('act')">Faol</button>
+  <button class="tab" id="t-his" onclick="show('his')">Tugagan</button>
+</div>
 <main id="list"><div class="empty">Yuklanmoqda...</div></main>
+<main id="hist" hidden></main>
 
 <details id="admin" hidden>
   <summary>Admin paneli</summary>
@@ -160,9 +168,35 @@ async function giveCoin() {
   } catch (e) { toast(e.message); }
 }
 
+let tab = "act";
+function show(t) {
+  tab = t;
+  document.getElementById("list").hidden = t !== "act";
+  document.getElementById("hist").hidden = t !== "his";
+  document.getElementById("t-act").classList.toggle("on", t === "act");
+  document.getElementById("t-his").classList.toggle("on", t === "his");
+  if (t === "his") loadHist();
+}
+
+async function loadHist() {
+  const box = document.getElementById("hist");
+  try {
+    const list = await api("/api/history");
+    if (!list.length) { box.innerHTML = '<div class="empty">Hali tugagan auksion yo\'q</div>'; return; }
+    box.innerHTML = list.map(h => {
+      const who = !h.has_winner ? "Stavka qo'yilmagan"
+        : h.is_me ? "Siz yutdingiz" : "G'olib: " + esc(h.winner || "foydalanuvchi");
+      return `<div class="card">
+        <div class="top"><div class="title">${esc(h.title)}</div><div class="time">Tugadi</div></div>
+        <div class="price">${h.price} <span>coin</span></div>
+        <div class="state ${h.is_me ? "win" : ""}">${who}</div></div>`;
+    }).join("");
+  } catch (e) { box.innerHTML = '<div class="empty">' + esc(e.message) + "</div>"; }
+}
+
 load();
 setInterval(tick, 1000);
-setInterval(load, 15000);
+setInterval(() => { load(); if (tab === "his") loadHist(); }, 15000);
 </script>
 </body>
 </html>
