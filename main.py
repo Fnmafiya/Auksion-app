@@ -48,6 +48,18 @@ def init_db():
             created_at BIGINT NOT NULL,
             finished_at BIGINT
         )""")
+        # Eski bazalarda jadval avval yaratilgan bo'lishi mumkin.
+        # IF NOT EXISTS mavjud jadvalga ustun qo'shmaydi, shuning uchun migratsiya qilamiz.
+        c.execute("ALTER TABLE game_rooms ADD COLUMN IF NOT EXISTS game_code TEXT")
+        c.execute("ALTER TABLE game_rooms ADD COLUMN IF NOT EXISTS stake BIGINT")
+        c.execute("ALTER TABLE game_rooms ADD COLUMN IF NOT EXISTS player1 BIGINT")
+        c.execute("ALTER TABLE game_rooms ADD COLUMN IF NOT EXISTS player2 BIGINT")
+        c.execute("ALTER TABLE game_rooms ADD COLUMN IF NOT EXISTS score1 BIGINT")
+        c.execute("ALTER TABLE game_rooms ADD COLUMN IF NOT EXISTS score2 BIGINT")
+        c.execute("ALTER TABLE game_rooms ADD COLUMN IF NOT EXISTS winner BIGINT")
+        c.execute("ALTER TABLE game_rooms ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'waiting'")
+        c.execute("ALTER TABLE game_rooms ADD COLUMN IF NOT EXISTS created_at BIGINT")
+        c.execute("ALTER TABLE game_rooms ADD COLUMN IF NOT EXISTS finished_at BIGINT")
         c.execute("""CREATE INDEX IF NOT EXISTS game_rooms_waiting_idx
             ON game_rooms(game_code, status, created_at)""")
 
