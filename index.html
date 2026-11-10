@@ -31,8 +31,8 @@ button:disabled{opacity:.5}
 details{margin-top:18px}
 summary{font-weight:700;cursor:pointer;padding:8px 0}
 .adm{display:grid;gap:8px;margin-bottom:14px}
-.tabs{display:flex;gap:8px;margin-bottom:12px}
-.tab{flex:1;padding:11px 6px;background:var(--card);color:var(--ink);border:1px solid var(--line)}
+.tabs{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
+.tab{flex:1 1 calc(50% - 8px);min-width:0;padding:11px 6px;background:var(--card);color:var(--ink);border:1px solid var(--line)}
 .tab.on{background:var(--acc);color:#1a1300;border-color:var(--acc)}
 #splash{position:fixed;inset:0;z-index:20;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:24px;background:radial-gradient(circle at 50% 30%,#22345a,#0e1726 70%);transition:opacity .4s}
 #splash.off{opacity:0;pointer-events:none}
@@ -44,6 +44,22 @@ summary{font-weight:700;cursor:pointer;padding:8px 0}
 @media (prefers-reduced-motion:reduce){.hammer{animation:none}}
 #toast{position:fixed;left:14px;right:14px;bottom:calc(16px + env(safe-area-inset-bottom,0px));background:var(--ink);color:#0e1726;padding:12px 14px;border-radius:10px;opacity:0;pointer-events:none;transition:opacity .2s}
 #toast.on{opacity:1}
+
+.games-intro{color:var(--mute);font-size:14px;margin:0 0 12px}
+.game-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.game-card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px;min-width:0}
+.game-icon{font-size:28px;margin-bottom:5px}
+.game-name{font-weight:750;font-size:15px}
+.game-desc{font-size:12px;color:var(--mute);min-height:32px;margin:4px 0 10px}
+.game-card button{width:100%;padding:10px 6px;font-size:13px}
+.game-controls{display:grid;gap:9px;margin-top:12px}
+.game-controls input,.game-controls select{width:100%;font:inherit;padding:11px 12px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink)}
+.game-room{margin-top:12px;border:1px solid var(--line);border-radius:12px;padding:12px;background:#101c30}
+.game-room .state{margin:5px 0}
+.game-payout{color:var(--ok);font-weight:800}
+@media(min-width:560px){.game-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.tab{flex-basis:0}}
+.tabs .tab{display:block;visibility:visible;opacity:1}
+
 </style>
 </head>
 <body>
@@ -58,7 +74,21 @@ summary{font-weight:700;cursor:pointer;padding:8px 0}
   <button class="tab on" id="t-act" onclick="show('act')">Faol</button>
   <button class="tab" id="t-his" onclick="show('his')">Tugagan</button>
   <button class="tab" id="t-top" onclick="show('top')">To'ldirish</button>
+  <button class="tab" id="t-games" onclick="show('games')">🎮 O'yinlar</button>
 </div>
+<main id="games" hidden>
+  <div class="card">
+    <div class="title">🎮 MILLIONER o'yinlari</div>
+    <p class="games-intro">Raqib topilgandan keyin o'yin boshlanadi. Har ikki o'yinchi bir xil miqdorda coin tikadi.</p>
+    <div class="game-controls">
+      <label for="game-stake" class="state">Tikish miqdori (10 — 1 000 000 coin)</label>
+      <input id="game-stake" type="number" inputmode="numeric" min="10" max="1000000" step="1" value="100" placeholder="Coin miqdori">
+      <div class="state">G'olibga jami tikishning 1.8 baravari — 1.8x koeffitsiyent.</div>
+    </div>
+  </div>
+  <div id="game-grid" class="game-grid"></div>
+  <div id="game-room"></div>
+</main>
 <main id="list"><div class="empty">Yuklanmoqda...</div></main>
 <main id="hist" hidden></main>
 <main id="topup" hidden>
@@ -204,11 +234,12 @@ setTimeout(closeSplash, 3500);
 let tab = "act";
 function show(t) {
   tab = t;
-  for (const [k, id] of [["act", "list"], ["his", "hist"], ["top", "topup"]]) {
+  for (const [k, id] of [["act", "list"], ["his", "hist"], ["top", "topup"], ["games", "games"]]) {
     document.getElementById(id).hidden = t !== k;
     document.getElementById("t-" + k).classList.toggle("on", t === k);
   }
   if (t === "his") loadHist();
+  if (t === "games") { renderGames(); loadGameRooms(); }
 }
 
 async function reqTopup(btn) {
@@ -243,9 +274,127 @@ async function loadHist() {
   } catch (e) { box.innerHTML = '<div class="empty">' + esc(e.message) + "</div>"; }
 }
 
+
+// MILLIONER: PvP o'yinlar. Natija va coin hisob-kitobi serverda tekshiriladi.
+const GAME_TYPES = [
+  ["coin_flip","🪙","Tanga","Gerb yoki raqam"],
+  ["dice_duel","🎲","Zar dueli","Kimning zari katta?"],
+  ["rps","✊","Tosh-qaychi-qog'oz","Uch belgidan birini tanlang"],
+  ["high_card","🃏","Katta karta","Kimda karta kattaroq?"],
+  ["odd_even","🔢","Juft yoki toq","Raqam natijasini toping"],
+  ["lucky_number","🍀","Omadli raqam","Berilgan oraliqdan tanlang"],
+  ["quick_math","➗","Tez hisob","Misolni birinchi yeching"],
+  ["color_pick","🎨","Rang tanlash","Yashirin rangni toping"],
+  ["basket_shot","🏀","Basket zarbasi","Aniq zarba dueli"],
+  ["mini_roulette","🎯","Mini ruletka","Raqamni taxmin qiling"]
+];
+
+function renderGames() {
+  const box = document.getElementById("game-grid");
+  box.innerHTML = GAME_TYPES.map(g => `
+    <div class="game-card">
+      <div class="game-icon">${g[1]}</div>
+      <div class="game-name">${g[2]}</div>
+      <div class="game-desc">${g[3]}</div>
+      <button onclick="joinGame('${g[0]}', this)">Raqib qidirish</button>
+    </div>`).join("");
+}
+
+async function joinGame(type, btn) {
+  const stake = Number(document.getElementById("game-stake").value);
+  if (!Number.isInteger(stake) || stake < 10 || stake > 1000000)
+    return toast("Tikish 10 dan 1 000 000 coin gacha bo'lishi kerak");
+  btn.disabled = true;
+  btn.textContent = "Raqib qidirilmoqda...";
+  try {
+    const r = await api("/api/games/join", {game_type:type, stake});
+    const room = document.getElementById("game-room");
+    room.innerHTML = `<div class="game-room">
+      <div class="title">${esc(r.game_title || "O'yin")}</div>
+      <div class="state">${r.status === "matched" ? "Raqib topildi! O'yin boshlanmoqda." : "Raqib kutilmoqda..."}</div>
+      <div class="state">Tikish: <b>${stake.toLocaleString()} coin</b></div>
+      <div class="game-payout">G'olib yutug'i: ${(stake*1.8).toLocaleString()} coin (1.8x)</div>
+      <div class="state">Xona: ${esc(String(r.room_id ?? "—"))}</div>
+      <div class="state">O'yin holati serverdan yangilanadi.</div>
+    </div>`;
+    if (r.status !== "matched") pollGameRoom(r.room_id);
+    else if (r.game_url) location.href = r.game_url;
+    toast(r.status === "matched" ? "Raqib topildi" : "Raqib qidirilmoqda");
+  } catch(e) {
+    toast(e.message);
+    btn.disabled = false;
+    btn.textContent = "Raqib qidirish";
+  }
+}
+
+async function loadGameRooms() {
+  try {
+    const rooms = await api("/api/games/rooms");
+    const box = document.getElementById("game-room");
+    if (!rooms || !rooms.length) {
+      if (!box.innerHTML) box.innerHTML = '<div class="empty">Hozircha kutayotgan o\\'yinchilar yo\\'q</div>';
+      return;
+    }
+    box.innerHTML = '<div class="card"><div class="title">Ochiq o\\'yin xonalari</div>' +
+      rooms.map(r => `<div class="game-room">
+        <b>${esc(r.game_title || r.game_type)}</b>
+        <div class="state">Tikish: ${Number(r.stake).toLocaleString()} coin</div>
+        <button onclick="joinRoom('${esc(String(r.room_id))}', this)">Raqib bo'lish</button>
+      </div>`).join("") + '</div>';
+  } catch(e) {
+    // Backenddagi yangi o'yin API hali ulanmagan bo'lsa, foydalanuvchiga xabar.
+    document.getElementById("game-room").innerHTML =
+      '<div class="empty">O\\'yin serveri ulanmagan. Backendga /api/games API qo\\'shilishi kerak.</div>';
+  }
+}
+
+async function joinRoom(roomId, btn) {
+  btn.disabled = true;
+  try {
+    const r = await api("/api/games/join-room", {room_id:roomId});
+    toast("Xonaga qo'shildingiz");
+    document.getElementById("game-room").innerHTML = `<div class="game-room">
+      <div class="title">O'yin xonasi</div>
+      <div class="state">${r.status === "matched" ? "Raqib topildi! O'yin boshlanadi." : "Raqib kutilmoqda..."}</div>
+      <div class="state">Xona: ${esc(String(roomId))}</div>
+    </div>`;
+    if (r.status !== "matched") pollGameRoom(roomId);
+  } catch(e) { toast(e.message); btn.disabled = false; }
+}
+
+let gamePoll = null;
+async function pollGameRoom(roomId) {
+  if (gamePoll) clearInterval(gamePoll);
+  gamePoll = setInterval(async () => {
+    try {
+      const r = await api("/api/games/room/" + encodeURIComponent(roomId));
+      const box = document.getElementById("game-room");
+      if (r.status === "matched" || r.status === "playing") {
+        box.innerHTML = `<div class="game-room">
+          <div class="title">${esc(r.game_title || "O'yin")}</div>
+          <div class="state">Raqib: ${esc(r.opponent_name || "Topildi")}</div>
+          <div class="state">Holat: ${esc(r.status)}</div>
+          ${r.game_url ? `<button onclick="location.href='${esc(r.game_url)}'">O'yinga kirish</button>` : ""}
+        </div>`;
+      }
+      if (r.status === "finished" || r.status === "cancelled") {
+        clearInterval(gamePoll);
+        box.innerHTML += `<div class="game-room"><b>${r.is_winner ? "Siz yutdingiz!" : "O'yin tugadi"}</b>
+          <div class="state">${esc(r.result_message || "")}</div></div>`;
+        load();
+      }
+    } catch(e) { clearInterval(gamePoll); toast(e.message); }
+  }, 2000);
+}
+
+
 load();
 setInterval(tick, 1000);
-setInterval(() => { load(); if (tab === "his") loadHist(); }, 15000);
+setInterval(() => {
+  load();
+  if (tab === "his") loadHist();
+  if (tab === "games") loadGameRooms();
+}, 15000);
 </script>
 </body>
 </html>
