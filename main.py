@@ -13,6 +13,7 @@ DATABASE_URL = os.environ["DATABASE_URL"]
 ADMINS = {int(x) for x in os.environ.get("ADMIN_IDS", "").split(",") if x.strip()}
 CARD_INFO = os.environ.get("CARD_INFO", "Karta ma'lumoti kiritilmagan, admin bilan bog'laning")
 COIN_PRICE = int(os.environ.get("COIN_PRICE", "1000"))  # 1 coin necha so'm
+REFERRAL_BONUS = int(os.environ.get("REFERRAL_BONUS", "50"))  # taklif qilganga bonus (coin)
 FRIENDS_MODE = os.environ.get("FRIENDS_MODE", "0") == "1"  # do'stlar rejimi: pulsiz
 WEBHOOK_SECRET = hashlib.sha256(BOT_TOKEN.encode()).hexdigest()[:32]
 
@@ -34,6 +35,8 @@ def init_db():
             id BIGSERIAL PRIMARY KEY, auction_id BIGINT,
             user_id BIGINT, amount BIGINT, ts BIGINT)""")
         c.execute("ALTER TABLE auctions ADD COLUMN IF NOT EXISTS image TEXT")
+        c.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS referrer BIGINT")
+        c.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS ref_paid BOOLEAN DEFAULT FALSE")
         c.execute("""CREATE TABLE IF NOT EXISTS topups(
             id BIGSERIAL PRIMARY KEY, user_id BIGINT, coins BIGINT,
             status TEXT DEFAULT 'pending', ts BIGINT)""")
@@ -192,9 +195,52 @@ class Bid(BaseModel):
     amount: int
 
 
+def pay_referral(uid):
+    if REFERRAL_BONUS <= 0:
+        return
+    with db() as c:
+        r = c.execute("UPDATE users SET ref_paid=TRUE WHERE id=%s AND referrer IS NOT NULL "
+                      "AND NOT COALESCE(ref_paid, FALSE) RETURNING referrer", (uid,)).fetchone()
+        if r:
+            c.execute("UPDATE users SET balance=balance+%s WHERE id=%s",
+                      (REFERRAL_BONUS, r["referrer"]))
+    if r:
+        notify(r["referrer"], f"Taklif qilgan do'stingiz birinchi stavkasini qo'ydi. "
+                              f"Sizga {REFERRAL_BONUS} coin bonus berildi.")
+
+
+_BOT_NAME = None
+
+
+def bot_username():
+    global _BOT_NAME
+    if not _BOT_NAME:
+        r = tg("getMe")
+        if r and r.get("ok"):
+            _BOT_NAME = r["result"]["username"]
+    return _BOT_NAME
+
+
+@app.get("/api/referral")
+def referral(x_init_data: str = Header()):
+    uid = auth(x_init_data)
+    with db() as c:
+        r = c.execute("SELECT COUNT(*) AS n, COUNT(*) FILTER (WHERE ref_paid) AS p "
+                      "FROM users WHERE referrer=%s", (uid,)).fetchone()
+    name = bot_username()
+    return {"link": f"https://t.me/{name}?start=ref_{uid}" if name else "",
+            "invited": r["n"], "rewarded": r["p"], "bonus": REFERRAL_BONUS}
+
+
 @app.post("/api/bid")
 def bid(b: Bid, x_init_data: str = Header()):
     uid = auth(x_init_data)
+    res = place_bid(b, uid)
+    pay_referral(uid)
+    return res
+
+
+def place_bid(b: Bid, uid: int):
     if b.amount <= 0:
         raise HTTPException(400, "Miqdor noto'g'ri")
     with db() as c:
@@ -358,6 +404,25 @@ def topup(t: TopUp, x_init_data: str = Header()):
             "sum": t.coins * COIN_PRICE, "card": CARD_INFO}
 
 
+def handle_start(m, param):
+    uid = m["from"]["id"]
+    ref = int(param[4:]) if param.startswith("ref_") and param[4:].isdigit() else None
+    if ref == uid:
+        ref = None
+    with db() as c:
+        if ref is not None and not c.execute("SELECT 1 FROM users WHERE id=%s", (ref,)).fetchone():
+            ref = None
+        # faqat yangi foydalanuvchi taklif hisobiga o'tadi
+        c.execute("INSERT INTO users(id,name,referrer) VALUES(%s,%s,%s) ON CONFLICT(id) DO NOTHING",
+                  (uid, m["from"].get("first_name", ""), ref))
+    base = os.environ.get("BASE_URL") or os.environ.get("RENDER_EXTERNAL_URL")
+    params = {"chat_id": uid, "text": "Auksionga xush kelibsiz! Pastdagi tugma orqali kiring."}
+    if base:
+        params["reply_markup"] = json.dumps({"inline_keyboard": [[
+            {"text": "🔨 Auksionni ochish", "web_app": {"url": base}}]]})
+    tg("sendMessage", **params)
+
+
 def handle_message(m):
     if m["chat"]["type"] != "private":
         return
@@ -379,7 +444,11 @@ def handle_message(m):
                message_id=m["message_id"], caption=cap, reply_markup=kb)
         notify(uid, f"Chek qabul qilindi. So'rov #{t['id']} admin tomonidan tekshirilmoqda.")
     else:
-        notify(uid, "Auksionga kirish uchun chat menyusidagi Auksion tugmasini bosing.")
+        text = m.get("text") or ""
+        if text.startswith("/start"):
+            handle_start(m, text[6:].strip())
+        else:
+            notify(uid, "Auksionga kirish uchun chat menyusidagi Auksion tugmasini bosing.")
 
 
 def handle_callback(cb):
@@ -482,3 +551,51 @@ def take(g: Give, x_init_data: str = Header()):
     if not r:
         raise HTTPException(404, "Foydalanuvchi topilmadi")
     return {"balance": r["balance"]}
+
+
+class Del(BaseModel):
+    id: int
+
+
+@app.get("/api/admin/auctions")
+def admin_auctions(x_init_data: str = Header()):
+    require_admin(auth(x_init_data))
+    with db() as c:
+        rows = c.execute("SELECT id, title, status, start_price, top_bid, top_user FROM auctions "
+                         "ORDER BY id DESC LIMIT 50").fetchall()
+    return [{"id": r["id"], "title": r["title"], "status": r["status"],
+             "price": max(r["start_price"], r["top_bid"]),
+             "has_bids": r["top_user"] is not None} for r in rows]
+
+
+@app.post("/api/admin/auction/delete")
+def delete_auction(d: Del, x_init_data: str = Header()):
+    """Xato yoki eski e'lonni o'chirish. Faol e'londagi stavkalar qatnashchilarga qaytariladi."""
+    require_admin(auth(x_init_data))
+    with db() as c:
+        a = c.execute("SELECT id, status, top_user, top_bid FROM auctions WHERE id=%s FOR UPDATE",
+                      (d.id,)).fetchone()
+        if not a:
+            raise HTTPException(404, "E'lon topilmadi")
+        if a["status"] == "active":
+            if FRIENDS_MODE:
+                for r in c.execute("SELECT user_id, MAX(amount) AS m FROM bids "
+                                   "WHERE auction_id=%s GROUP BY user_id", (d.id,)).fetchall():
+                    c.execute("UPDATE users SET balance=balance+%s WHERE id=%s",
+                              (r["m"], r["user_id"]))
+            elif a["top_user"] is not None:
+                c.execute("UPDATE users SET balance=balance+%s WHERE id=%s",
+                          (a["top_bid"], a["top_user"]))
+        c.execute("DELETE FROM bids WHERE auction_id=%s", (d.id,))
+        c.execute("DELETE FROM auctions WHERE id=%s", (d.id,))
+    return {"ok": True}
+
+
+@app.post("/api/admin/clear-ended")
+def clear_ended(x_init_data: str = Header()):
+    require_admin(auth(x_init_data))
+    with db() as c:
+        c.execute("DELETE FROM bids WHERE auction_id IN "
+                  "(SELECT id FROM auctions WHERE status='ended')")
+        n = c.execute("DELETE FROM auctions WHERE status='ended' RETURNING id").fetchall()
+    return {"deleted": len(n)}

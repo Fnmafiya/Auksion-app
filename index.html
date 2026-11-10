@@ -61,6 +61,7 @@ summary{font-weight:700;cursor:pointer;padding:8px 0}
   <button class="tab on" id="t-act" onclick="show('act')"><span>🔨</span>Auksion</button>
   <button class="tab" id="t-his" onclick="show('his')"><span>🏁</span>Tugagan</button>
   <button class="tab" id="t-game" onclick="show('game')"><span>🎮</span>O'yin</button>
+  <button class="tab" id="t-ref" onclick="show('ref')"><span>🎁</span>Do'stlar</button>
   <button class="tab" id="t-top" onclick="show('top')"><span>💰</span>To'ldirish</button>
   <button class="tab" id="t-adm" onclick="show('adm')" hidden><span>🛠</span>Admin</button>
 </div>
@@ -72,6 +73,18 @@ summary{font-weight:700;cursor:pointer;padding:8px 0}
     <div class="title" style="margin-top:8px">O'yinlar bo'limi</div>
     <div class="state">Tez orada shu yerda o'yinlar paydo bo'ladi.</div>
   </div>
+</main>
+<main id="refview" hidden>
+  <div class="card">
+    <div class="title">Do'stlarni taklif qiling</div>
+    <div class="state">Havolangiz orqali kirgan do'stingiz birinchi stavkasini qo'ysa, sizga <b id="rf-bonus">0</b> coin bonus beriladi.</div>
+    <input id="rf-link" readonly style="width:100%">
+    <div class="row" style="margin-top:8px">
+      <button onclick="copyRef()">Nusxalash</button>
+      <button onclick="shareRef()">Ulashish</button>
+    </div>
+  </div>
+  <div class="card"><div class="state">Taklif qilinganlar: <b id="rf-n">0</b> · Bonus olingan: <b id="rf-p">0</b></div></div>
 </main>
 <main id="topup" hidden>
   <div class="card">
@@ -104,6 +117,9 @@ summary{font-weight:700;cursor:pointer;padding:8px 0}
     <input id="x-amt" type="number" inputmode="numeric" placeholder="Ayiriladigan coin miqdori">
     <button onclick="takeCoin()">Coin ayirish (bekor qilish)</button>
   </div>
+  <div class="title" style="margin:18px 0 8px">E'lonlarni boshqarish</div>
+  <div id="adm-list"></div>
+  <button onclick="clearEnded()" style="width:100%;margin-top:4px">Tugaganlarni hammasini o'chirish</button>
 </main>
 <div id="toast"></div>
 
@@ -245,6 +261,56 @@ async function giveCoin() {
   } catch (e) { toast(e.message); }
 }
 
+let refLink = "";
+async function loadRef() {
+  try {
+    const r = await api("/api/referral");
+    refLink = r.link;
+    document.getElementById("rf-link").value = r.link || "Havola hali tayyor emas";
+    document.getElementById("rf-bonus").textContent = r.bonus;
+    document.getElementById("rf-n").textContent = r.invited;
+    document.getElementById("rf-p").textContent = r.rewarded;
+  } catch (e) { toast(e.message); }
+}
+async function copyRef() {
+  if (!refLink) return;
+  try { await navigator.clipboard.writeText(refLink); }
+  catch (e) { const i = document.getElementById("rf-link"); i.select(); document.execCommand("copy"); }
+  toast("Havola nusxalandi");
+}
+function shareRef() {
+  if (!refLink) return;
+  tg.openTelegramLink("https://t.me/share/url?url=" + encodeURIComponent(refLink) +
+    "&text=" + encodeURIComponent("Auksionga qo'shiling!"));
+}
+
+function ask(msg, yes) {
+  if (tg.showConfirm) tg.showConfirm(msg, ok => { if (ok) yes(); });
+  else if (confirm(msg)) yes();
+}
+async function loadAdminList() {
+  try {
+    const list = await api("/api/admin/auctions");
+    document.getElementById("adm-list").innerHTML = list.length ? list.map(a =>
+      `<div class="card"><div class="top"><div class="title">${esc(a.title)}</div><div class="time">${a.status === "active" ? "Faol" : "Tugagan"}</div></div>
+       <div class="state">${a.price} coin${a.has_bids ? " · stavkalar bor" : ""}</div>
+       <button onclick="delAuction(${a.id}, ${a.status === "active" && a.has_bids})">O'chirish</button></div>`).join("")
+      : '<div class="state">E\'lon yo\'q</div>';
+  } catch (e) { toast(e.message); }
+}
+function delAuction(id, hasBids) {
+  ask(hasBids ? "Bu faol e'londa stavkalar bor, ular qatnashchilarga qaytariladi. O'chiraymi?" : "E'lonni o'chiraymi?", async () => {
+    try { await api("/api/admin/auction/delete", {id}); toast("O'chirildi"); loadAdminList(); load(); }
+    catch (e) { toast(e.message); }
+  });
+}
+function clearEnded() {
+  ask("Barcha tugagan e'lonlar o'chiriladi. Davom etaymi?", async () => {
+    try { const r = await api("/api/admin/clear-ended", {}); toast(r.deleted + " ta e'lon o'chirildi"); loadAdminList(); }
+    catch (e) { toast(e.message); }
+  });
+}
+
 try { tg.setHeaderColor("#0e1726"); tg.setBackgroundColor("#0e1726"); } catch (e) {}
 const me0 = tg.initDataUnsafe && tg.initDataUnsafe.user;
 if (me0 && me0.first_name)
@@ -255,11 +321,13 @@ setTimeout(closeSplash, 3500);
 let tab = "act";
 function show(t) {
   tab = t;
-  for (const [k, id] of [["act", "list"], ["his", "hist"], ["game", "gameview"], ["top", "topup"], ["adm", "adminview"]]) {
+  for (const [k, id] of [["act", "list"], ["his", "hist"], ["game", "gameview"], ["ref", "refview"], ["top", "topup"], ["adm", "adminview"]]) {
     document.getElementById(id).hidden = t !== k;
     document.getElementById("t-" + k).classList.toggle("on", t === k);
   }
   if (t === "his") loadHist();
+  if (t === "ref") loadRef();
+  if (t === "adm") loadAdminList();
 }
 
 async function reqTopup(btn) {
