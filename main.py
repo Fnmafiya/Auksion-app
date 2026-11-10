@@ -11,6 +11,9 @@ from pydantic import BaseModel
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 DATABASE_URL = os.environ["DATABASE_URL"]
 ADMINS = {int(x) for x in os.environ.get("ADMIN_IDS", "").split(",") if x.strip()}
+CARD_INFO = os.environ.get("CARD_INFO", "Karta ma'lumoti kiritilmagan, admin bilan bog'laning")
+COIN_PRICE = int(os.environ.get("COIN_PRICE", "1000"))  # 1 coin necha so'm
+WEBHOOK_SECRET = hashlib.sha256(BOT_TOKEN.encode()).hexdigest()[:32]
 
 
 def db():
@@ -29,15 +32,31 @@ def init_db():
         c.execute("""CREATE TABLE IF NOT EXISTS bids(
             id BIGSERIAL PRIMARY KEY, auction_id BIGINT,
             user_id BIGINT, amount BIGINT, ts BIGINT)""")
+        c.execute("""CREATE TABLE IF NOT EXISTS topups(
+            id BIGSERIAL PRIMARY KEY, user_id BIGINT, coins BIGINT,
+            status TEXT DEFAULT 'pending', ts BIGINT)""")
+
+
+def tg(method, **params):
+    try:
+        data = urlencode(params).encode()
+        with urllib.request.urlopen(
+                f"https://api.telegram.org/bot{BOT_TOKEN}/{method}", data, timeout=10) as r:
+            return json.loads(r.read())
+    except Exception as e:
+        print("Telegram xato:", method, e)
+        return None
 
 
 def notify(chat_id, text):
-    try:
-        data = urlencode({"chat_id": chat_id, "text": text}).encode()
-        urllib.request.urlopen(
-            f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", data, timeout=10)
-    except Exception as e:
-        print("xabar yuborilmadi:", e)
+    tg("sendMessage", chat_id=chat_id, text=text)
+
+
+def set_webhook():
+    base = os.environ.get("BASE_URL") or os.environ.get("RENDER_EXTERNAL_URL")
+    if base:
+        tg("setWebhook", url=base.rstrip("/") + "/webhook", secret_token=WEBHOOK_SECRET,
+           allowed_updates=json.dumps(["message", "callback_query"]))
 
 
 def close_expired():
@@ -68,6 +87,7 @@ async def closer():
 @asynccontextmanager
 async def lifespan(app):
     init_db()
+    asyncio.create_task(asyncio.to_thread(set_webhook))
     task = asyncio.create_task(closer())
     yield
     task.cancel()
@@ -176,6 +196,93 @@ def bid(b: Bid, x_init_data: str = Header()):
                   (b.amount, uid, a["id"]))
         c.execute("INSERT INTO bids(auction_id,user_id,amount,ts) VALUES(%s,%s,%s,%s)",
                   (a["id"], uid, b.amount, int(time.time())))
+    return {"ok": True}
+
+
+class TopUp(BaseModel):
+    coins: int
+
+
+@app.post("/api/topup")
+def topup(t: TopUp, x_init_data: str = Header()):
+    uid = auth(x_init_data)
+    if t.coins < 1 or t.coins > 10_000_000:
+        raise HTTPException(400, "Miqdor noto'g'ri")
+    with db() as c:
+        c.execute("UPDATE topups SET status='cancelled' "
+                  "WHERE user_id=%s AND status='pending'", (uid,))
+        row = c.execute("INSERT INTO topups(user_id,coins,ts) VALUES(%s,%s,%s) RETURNING id",
+                        (uid, t.coins, int(time.time()))).fetchone()
+    return {"id": row["id"], "coins": t.coins,
+            "sum": t.coins * COIN_PRICE, "card": CARD_INFO}
+
+
+def handle_message(m):
+    if m["chat"]["type"] != "private":
+        return
+    uid = m["from"]["id"]
+    if m.get("photo") or m.get("document"):
+        with db() as c:
+            t = c.execute("SELECT id, coins FROM topups WHERE user_id=%s AND status='pending' "
+                          "ORDER BY id DESC LIMIT 1", (uid,)).fetchone()
+        if not t:
+            notify(uid, "Avval Mini App'da To'ldirish bo'limida so'rov yarating, keyin chekni yuboring.")
+            return
+        cap = (f"So'rov #{t['id']}\nFoydalanuvchi: {m['from'].get('first_name', '')} (ID {uid})\n"
+               f"Miqdor: {t['coins']} coin ({t['coins'] * COIN_PRICE} so'm)")
+        kb = json.dumps({"inline_keyboard": [[
+            {"text": "Tasdiqlash", "callback_data": f"ok:{t['id']}"},
+            {"text": "Rad etish", "callback_data": f"no:{t['id']}"}]]})
+        for admin in ADMINS:
+            tg("copyMessage", chat_id=admin, from_chat_id=uid,
+               message_id=m["message_id"], caption=cap, reply_markup=kb)
+        notify(uid, f"Chek qabul qilindi. So'rov #{t['id']} admin tomonidan tekshirilmoqda.")
+    else:
+        notify(uid, "Auksionga kirish uchun chat menyusidagi Auksion tugmasini bosing.")
+
+
+def handle_callback(cb):
+    adm = cb["from"]["id"]
+    if adm not in ADMINS:
+        tg("answerCallbackQuery", callback_query_id=cb["id"], text="Faqat admin", show_alert="true")
+        return
+    action, tid = cb["data"].split(":")
+    tid = int(tid)
+    new = "approved" if action == "ok" else "rejected"
+    with db() as c:
+        t = c.execute("UPDATE topups SET status=%s WHERE id=%s AND status='pending' "
+                      "RETURNING user_id, coins", (new, tid)).fetchone()
+        if t and new == "approved":
+            c.execute("UPDATE users SET balance=balance+%s WHERE id=%s",
+                      (t["coins"], t["user_id"]))
+    if not t:
+        tg("answerCallbackQuery", callback_query_id=cb["id"],
+           text="Bu so'rov allaqachon ko'rib chiqilgan", show_alert="true")
+        return
+    tg("answerCallbackQuery", callback_query_id=cb["id"], text="Bajarildi")
+    if new == "approved":
+        notify(t["user_id"], f"So'rov #{tid} tasdiqlandi. Hisobingizga {t['coins']} coin qo'shildi.")
+        status = "TASDIQLANDI"
+    else:
+        notify(t["user_id"], f"So'rov #{tid} rad etildi. Savol bo'lsa admin bilan bog'laning.")
+        status = "RAD ETILDI"
+    msg = cb.get("message")
+    if msg:
+        tg("editMessageCaption", chat_id=msg["chat"]["id"], message_id=msg["message_id"],
+           caption=f"So'rov #{tid}: {status} ({t['coins']} coin)")
+
+
+@app.post("/webhook")
+def webhook(update: dict, x_telegram_bot_api_secret_token: str = Header(None)):
+    if x_telegram_bot_api_secret_token != WEBHOOK_SECRET:
+        raise HTTPException(403, "Ruxsat yo'q")
+    try:
+        if "callback_query" in update:
+            handle_callback(update["callback_query"])
+        elif "message" in update:
+            handle_message(update["message"])
+    except Exception as e:
+        print("webhook xato:", e)
     return {"ok": True}
 
 

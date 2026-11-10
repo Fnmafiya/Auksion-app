@@ -32,7 +32,7 @@ details{margin-top:18px}
 summary{font-weight:700;cursor:pointer;padding:8px 0}
 .adm{display:grid;gap:8px;margin-bottom:14px}
 .tabs{display:flex;gap:8px;margin-bottom:12px}
-.tab{flex:1;background:#fff;color:var(--ink);border:1px solid var(--line)}
+.tab{flex:1;padding:11px 6px;background:#fff;color:var(--ink);border:1px solid var(--line)}
 .tab.on{background:var(--acc);color:#fff;border-color:var(--acc)}
 #toast{position:fixed;left:14px;right:14px;bottom:calc(16px + env(safe-area-inset-bottom,0px));background:var(--ink);color:#fff;padding:12px 14px;border-radius:10px;opacity:0;pointer-events:none;transition:opacity .2s}
 #toast.on{opacity:1}
@@ -43,9 +43,21 @@ summary{font-weight:700;cursor:pointer;padding:8px 0}
 <div class="tabs">
   <button class="tab on" id="t-act" onclick="show('act')">Faol</button>
   <button class="tab" id="t-his" onclick="show('his')">Tugagan</button>
+  <button class="tab" id="t-top" onclick="show('top')">To'ldirish</button>
 </div>
 <main id="list"><div class="empty">Yuklanmoqda...</div></main>
 <main id="hist" hidden></main>
+<main id="topup" hidden>
+  <div class="card">
+    <div class="title">Balansni to'ldirish</div>
+    <div class="state">Coin miqdorini kiriting, kartaga o'tkazma qiling va chek rasmini bot chatiga yuboring. Admin tasdiqlagach coin hisobingizga tushadi.</div>
+    <div class="row">
+      <input id="tp-coins" type="number" inputmode="numeric" placeholder="Coin miqdori">
+      <button onclick="reqTopup(this)">So'rov yuborish</button>
+    </div>
+    <div id="tp-res"></div>
+  </div>
+</main>
 
 <details id="admin" hidden>
   <summary>Admin paneli</summary>
@@ -171,11 +183,27 @@ async function giveCoin() {
 let tab = "act";
 function show(t) {
   tab = t;
-  document.getElementById("list").hidden = t !== "act";
-  document.getElementById("hist").hidden = t !== "his";
-  document.getElementById("t-act").classList.toggle("on", t === "act");
-  document.getElementById("t-his").classList.toggle("on", t === "his");
+  for (const [k, id] of [["act", "list"], ["his", "hist"], ["top", "topup"]]) {
+    document.getElementById(id).hidden = t !== k;
+    document.getElementById("t-" + k).classList.toggle("on", t === k);
+  }
   if (t === "his") loadHist();
+}
+
+async function reqTopup(btn) {
+  const coins = parseInt(document.getElementById("tp-coins").value, 10);
+  if (!coins) return toast("Miqdorni kiriting");
+  btn.disabled = true;
+  try {
+    const r = await api("/api/topup", {coins});
+    document.getElementById("tp-res").innerHTML =
+      `<div class="state win" style="margin-top:12px">So'rov #${r.id} yaratildi</div>
+       <div class="price">${r.sum} <span>so'm</span></div>
+       <div class="state">Shu kartaga o'tkazing:<br><b>${esc(r.card)}</b></div>
+       <div class="state">Keyin chek rasmini bot chatiga yuboring. Admin tasdiqlagach ${r.coins} coin balansga qo'shiladi.</div>
+       <button onclick="tg.close()">Bot chatiga o'tish</button>`;
+  } catch (e) { toast(e.message); }
+  btn.disabled = false;
 }
 
 async function loadHist() {
