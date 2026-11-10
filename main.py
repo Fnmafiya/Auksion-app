@@ -123,6 +123,11 @@ def index():
     return FileResponse("index.html")
 
 
+@app.api_route("/health", methods=["GET", "HEAD"])
+def health():
+    return {"ok": True}
+
+
 @app.get("/api/me")
 def me(x_init_data: str = Header()):
     uid = auth(x_init_data)
