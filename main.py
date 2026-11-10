@@ -1,11 +1,11 @@
-import os, json, hmac, hashlib, time, asyncio
+import os, json, hmac, hashlib, time, asyncio, base64
 import urllib.request
 from urllib.parse import parse_qsl, urlencode
 from contextlib import asynccontextmanager
 import psycopg
 from psycopg.rows import dict_row
 from fastapi import FastAPI, Header, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 
 BOT_TOKEN = os.environ["BOT_TOKEN"]
@@ -13,6 +13,7 @@ DATABASE_URL = os.environ["DATABASE_URL"]
 ADMINS = {int(x) for x in os.environ.get("ADMIN_IDS", "").split(",") if x.strip()}
 CARD_INFO = os.environ.get("CARD_INFO", "Karta ma'lumoti kiritilmagan, admin bilan bog'laning")
 COIN_PRICE = int(os.environ.get("COIN_PRICE", "1000"))  # 1 coin necha so'm
+FRIENDS_MODE = os.environ.get("FRIENDS_MODE", "0") == "1"  # do'stlar rejimi: pulsiz
 WEBHOOK_SECRET = hashlib.sha256(BOT_TOKEN.encode()).hexdigest()[:32]
 
 
@@ -32,36 +33,14 @@ def init_db():
         c.execute("""CREATE TABLE IF NOT EXISTS bids(
             id BIGSERIAL PRIMARY KEY, auction_id BIGINT,
             user_id BIGINT, amount BIGINT, ts BIGINT)""")
+        c.execute("ALTER TABLE auctions ADD COLUMN IF NOT EXISTS image TEXT")
         c.execute("""CREATE TABLE IF NOT EXISTS topups(
             id BIGSERIAL PRIMARY KEY, user_id BIGINT, coins BIGINT,
             status TEXT DEFAULT 'pending', ts BIGINT)""")
-        c.execute("""CREATE TABLE IF NOT EXISTS game_rooms(
-            id BIGSERIAL PRIMARY KEY,
-            game_code TEXT NOT NULL,
-            stake BIGINT NOT NULL,
-            player1 BIGINT NOT NULL,
-            player2 BIGINT,
-            score1 BIGINT,
-            score2 BIGINT,
-            winner BIGINT,
-            status TEXT NOT NULL DEFAULT 'waiting',
-            created_at BIGINT NOT NULL,
-            finished_at BIGINT
-        )""")
-        # Eski bazalarda jadval avval yaratilgan bo'lishi mumkin.
-        # IF NOT EXISTS mavjud jadvalga ustun qo'shmaydi, shuning uchun migratsiya qilamiz.
-        c.execute("ALTER TABLE game_rooms ADD COLUMN IF NOT EXISTS game_code TEXT")
-        c.execute("ALTER TABLE game_rooms ADD COLUMN IF NOT EXISTS stake BIGINT")
-        c.execute("ALTER TABLE game_rooms ADD COLUMN IF NOT EXISTS player1 BIGINT")
-        c.execute("ALTER TABLE game_rooms ADD COLUMN IF NOT EXISTS player2 BIGINT")
-        c.execute("ALTER TABLE game_rooms ADD COLUMN IF NOT EXISTS score1 BIGINT")
-        c.execute("ALTER TABLE game_rooms ADD COLUMN IF NOT EXISTS score2 BIGINT")
-        c.execute("ALTER TABLE game_rooms ADD COLUMN IF NOT EXISTS winner BIGINT")
-        c.execute("ALTER TABLE game_rooms ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'waiting'")
-        c.execute("ALTER TABLE game_rooms ADD COLUMN IF NOT EXISTS created_at BIGINT")
-        c.execute("ALTER TABLE game_rooms ADD COLUMN IF NOT EXISTS finished_at BIGINT")
-        c.execute("""CREATE INDEX IF NOT EXISTS game_rooms_waiting_idx
-            ON game_rooms(game_code, status, created_at)""")
+        c.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS points BIGINT DEFAULT 0")
+        c.execute("""CREATE TABLE IF NOT EXISTS duels(
+            id BIGSERIAL PRIMARY KEY, p1 BIGINT, p2 BIGINT, m1 TEXT, m2 TEXT,
+            status TEXT DEFAULT 'waiting', winner BIGINT, ts BIGINT)""")
 
 
 def tg(method, **params):
@@ -160,22 +139,35 @@ def me(x_init_data: str = Header()):
     uid = auth(x_init_data)
     with db() as c:
         row = c.execute("SELECT balance FROM users WHERE id=%s", (uid,)).fetchone()
-    return {"id": uid, "balance": row["balance"], "is_admin": uid in ADMINS}
+    return {"id": uid, "balance": row["balance"], "is_admin": uid in ADMINS,
+            "friends_mode": FRIENDS_MODE}
 
 
 @app.get("/api/auctions")
 def auctions(x_init_data: str = Header()):
     uid = auth(x_init_data)
     with db() as c:
-        rows = c.execute("SELECT * FROM auctions WHERE status='active' "
-                         "ORDER BY ends_at").fetchall()
+        rows = c.execute("SELECT id, title, start_price, ends_at, top_bid, top_user, "
+                         "(image IS NOT NULL) AS has_image FROM auctions "
+                         "WHERE status='active' ORDER BY ends_at").fetchall()
     return [{
         "id": r["id"], "title": r["title"],
         "price": max(r["start_price"], r["top_bid"]),
         "ends_at": r["ends_at"],
         "is_top": r["top_user"] == uid,
         "has_bids": r["top_user"] is not None,
+        "image": bool(r["has_image"]),
     } for r in rows]
+
+
+@app.get("/api/auction/{aid}/image")
+def auction_image(aid: int):
+    with db() as c:
+        r = c.execute("SELECT image FROM auctions WHERE id=%s", (aid,)).fetchone()
+    if not r or not r["image"]:
+        raise HTTPException(404, "Rasm yo'q")
+    return Response(base64.b64decode(r["image"]), media_type="image/jpeg",
+                    headers={"Cache-Control": "public, max-age=86400"})
 
 
 @app.get("/api/history")
@@ -213,6 +205,20 @@ def bid(b: Bid, x_init_data: str = Header()):
         min_bid = a["start_price"] if a["top_user"] is None else a["top_bid"] + 1
         if b.amount < min_bid:
             raise HTTPException(400, f"Kamida {min_bid} coin")
+        if FRIENDS_MODE:
+            # Do'stlar rejimi: pul aralashmaydi, har kim o'zining eng katta stavkasini sarflaydi
+            prev = c.execute("SELECT COALESCE(MAX(amount),0) AS m FROM bids "
+                             "WHERE auction_id=%s AND user_id=%s", (a["id"], uid)).fetchone()["m"]
+            u = c.execute("SELECT balance FROM users WHERE id=%s FOR UPDATE", (uid,)).fetchone()
+            cost = b.amount - prev
+            if u["balance"] < cost:
+                raise HTTPException(400, "Coin yetarli emas")
+            c.execute("UPDATE users SET balance=balance-%s WHERE id=%s", (cost, uid))
+            c.execute("UPDATE auctions SET top_bid=%s, top_user=%s WHERE id=%s",
+                      (b.amount, uid, a["id"]))
+            c.execute("INSERT INTO bids(auction_id,user_id,amount,ts) VALUES(%s,%s,%s,%s)",
+                      (a["id"], uid, b.amount, int(time.time())))
+            return {"ok": True}
         ids = sorted({uid} | ({a["top_user"]} if a["top_user"] is not None else set()))
         rows = c.execute("SELECT id, balance FROM users WHERE id = ANY(%s) "
                          "ORDER BY id FOR UPDATE", (ids,)).fetchall()
@@ -231,6 +237,107 @@ def bid(b: Bid, x_init_data: str = Header()):
     return {"ok": True}
 
 
+MOVES = {"rock": "scissors", "scissors": "paper", "paper": "rock"}
+
+
+def duel_view(d, uid):
+    mine = d["p1"] == uid
+    my = d["m1"] if mine else d["m2"]
+    opp = d["m2"] if mine else d["m1"]
+    res = None
+    if d["status"] == "done":
+        res = "draw" if d["winner"] is None else ("win" if d["winner"] == uid else "lose")
+    return {"id": d["id"], "status": d["status"], "my": my,
+            "opp": opp if d["status"] == "done" else None, "result": res}
+
+
+def finish(c, d):
+    a, b = d["m1"], d["m2"]
+    if a and b:
+        w = None if a == b else (d["p1"] if MOVES[a] == b else d["p2"])
+    elif a or b:
+        w = d["p1"] if a else d["p2"]  # raqib javob bermadi
+    else:
+        w = None
+    c.execute("UPDATE duels SET status='done', winner=%s WHERE id=%s", (w, d["id"]))
+    if w:
+        c.execute("UPDATE users SET points=points+10 WHERE id=%s", (w,))
+    elif a and b:
+        c.execute("UPDATE users SET points=points+3 WHERE id = ANY(%s)", ([d["p1"], d["p2"]],))
+    d["status"], d["winner"] = "done", w
+
+
+@app.post("/api/duel/join")
+def duel_join(x_init_data: str = Header()):
+    uid = auth(x_init_data)
+    now = int(time.time())
+    with db() as c:
+        d = c.execute("SELECT * FROM duels WHERE (p1=%s OR p2=%s) AND status IN ('waiting','playing') "
+                      "AND ts>%s ORDER BY id DESC LIMIT 1", (uid, uid, now - 60)).fetchone()
+        if d:
+            return duel_view(d, uid)
+        w = c.execute("SELECT * FROM duels WHERE status='waiting' AND p1<>%s AND ts>%s "
+                      "ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED", (uid, now - 60)).fetchone()
+        if w:
+            d = c.execute("UPDATE duels SET p2=%s, status='playing', ts=%s WHERE id=%s RETURNING *",
+                          (uid, now, w["id"])).fetchone()
+        else:
+            d = c.execute("INSERT INTO duels(p1,ts) VALUES(%s,%s) RETURNING *", (uid, now)).fetchone()
+    return duel_view(d, uid)
+
+
+@app.get("/api/duel/{duel_id}")
+def duel_state(duel_id: int, x_init_data: str = Header()):
+    uid = auth(x_init_data)
+    now = int(time.time())
+    with db() as c:
+        d = c.execute("SELECT * FROM duels WHERE id=%s FOR UPDATE", (duel_id,)).fetchone()
+        if not d or uid not in (d["p1"], d["p2"]):
+            raise HTTPException(404, "Topilmadi")
+        if d["status"] == "waiting" and d["ts"] < now - 60:
+            c.execute("UPDATE duels SET status='expired' WHERE id=%s", (duel_id,))
+            d["status"] = "expired"
+        elif d["status"] == "playing" and d["ts"] < now - 60:
+            finish(c, d)
+    return duel_view(d, uid)
+
+
+class Move(BaseModel):
+    id: int
+    move: str
+
+
+@app.post("/api/duel/move")
+def duel_move(m: Move, x_init_data: str = Header()):
+    uid = auth(x_init_data)
+    if m.move not in MOVES:
+        raise HTTPException(400, "Noto'g'ri tanlov")
+    with db() as c:
+        d = c.execute("SELECT * FROM duels WHERE id=%s FOR UPDATE", (m.id,)).fetchone()
+        if not d or d["status"] != "playing" or uid not in (d["p1"], d["p2"]):
+            raise HTTPException(400, "O'yin faol emas")
+        col = "m1" if d["p1"] == uid else "m2"
+        if d[col]:
+            raise HTTPException(400, "Siz allaqachon tanlagansiz")
+        c.execute(f"UPDATE duels SET {col}=%s WHERE id=%s", (m.move, d["id"]))
+        d[col] = m.move
+        if d["m1"] and d["m2"]:
+            finish(c, d)
+    return duel_view(d, uid)
+
+
+@app.get("/api/leaderboard")
+def leaderboard(x_init_data: str = Header()):
+    uid = auth(x_init_data)
+    with db() as c:
+        rows = c.execute("SELECT id, name, points FROM users WHERE points>0 "
+                         "ORDER BY points DESC LIMIT 10").fetchall()
+        me = c.execute("SELECT points FROM users WHERE id=%s", (uid,)).fetchone()
+    return {"my_points": me["points"],
+            "top": [{"name": r["name"] or "O'yinchi", "points": r["points"],
+                     "me": r["id"] == uid} for r in rows]}
+
+
 class TopUp(BaseModel):
     coins: int
 
@@ -238,6 +345,8 @@ class TopUp(BaseModel):
 @app.post("/api/topup")
 def topup(t: TopUp, x_init_data: str = Header()):
     uid = auth(x_init_data)
+    if FRIENDS_MODE:
+        raise HTTPException(403, "Do'stlar rejimida to'ldirish o'chirilgan")
     if t.coins < 1 or t.coins > 10_000_000:
         raise HTTPException(400, "Miqdor noto'g'ri")
     with db() as c:
@@ -322,6 +431,7 @@ class NewAuction(BaseModel):
     title: str
     start_price: int
     minutes: int
+    image: str = ""  # base64 JPEG (prefikssiz)
 
 
 class Give(BaseModel):
@@ -337,9 +447,18 @@ def require_admin(uid):
 @app.post("/api/admin/auction")
 def new_auction(a: NewAuction, x_init_data: str = Header()):
     require_admin(auth(x_init_data))
+    img = None
+    if a.image:
+        try:
+            raw = base64.b64decode(a.image, validate=True)
+        except Exception:
+            raise HTTPException(400, "Rasm noto'g'ri")
+        if len(raw) > 300_000 or not raw.startswith(b"\xff\xd8"):
+            raise HTTPException(400, "Rasm juda katta yoki JPEG emas")
+        img = a.image
     with db() as c:
-        c.execute("INSERT INTO auctions(title,start_price,ends_at) VALUES(%s,%s,%s)",
-                  (a.title, a.start_price, int(time.time()) + a.minutes * 60))
+        c.execute("INSERT INTO auctions(title,start_price,ends_at,image) VALUES(%s,%s,%s,%s)",
+                  (a.title, a.start_price, int(time.time()) + a.minutes * 60, img))
     return {"ok": True}
 
 
@@ -352,174 +471,14 @@ def give(g: Give, x_init_data: str = Header()):
                   (g.user_id, "", g.amount, g.amount))
     return {"ok": True}
 
-# -------------------- COIN GAMES (PLAYER VS PLAYER) --------------------
 
-GAME_LIST = [
-    {"code": "reaction", "title": "⚡ Reaksiya"},
-    {"code": "math", "title": "🧠 Matematika"},
-    {"code": "memory", "title": "🧩 Xotira"},
-    {"code": "guess", "title": "🎯 Sonni top"},
-    {"code": "rps", "title": "✊ Tosh-qaychi-qog'oz"},
-    {"code": "evenodd", "title": "🔢 Juft yoki toq"},
-    {"code": "color", "title": "🎨 Rang sinovi"},
-    {"code": "count", "title": "🍎 Tez sanash"},
-    {"code": "higher", "title": "📈 Yuqori yoki past"},
-    {"code": "quiz", "title": "🏆 Bilimlar bellashuvi"},
-]
-GAME_CODES = {g["code"] for g in GAME_LIST}
-
-
-class JoinGame(BaseModel):
-    game_code: str
-    stake: int
-
-
-class GameScore(BaseModel):
-    room_id: int
-    score: int
-
-
-@app.get("/api/games")
-def games(x_init_data: str = Header()):
-    uid = auth(x_init_data)
+@app.post("/api/admin/take")
+def take(g: Give, x_init_data: str = Header()):
+    """Admin: foydalanuvchi balansidan coin ayirish (balans 0 dan pastga tushmaydi)."""
+    require_admin(auth(x_init_data))
     with db() as c:
-        rows = c.execute("""
-            SELECT id, game_code, stake, player1, player2, status, created_at
-            FROM game_rooms
-            WHERE status IN ('waiting', 'playing')
-              AND (player1=%s OR player2=%s)
-            ORDER BY id DESC LIMIT 20
-        """, (uid, uid)).fetchall()
-    return {"games": GAME_LIST, "my_rooms": [dict(r) for r in rows]}
-
-
-@app.post("/api/games/join")
-def join_game(g: JoinGame, x_init_data: str = Header()):
-    uid = auth(x_init_data)
-    if g.game_code not in GAME_CODES:
-        raise HTTPException(400, "Bunday o'yin mavjud emas")
-    if g.stake < 10 or g.stake > 1_000_000:
-        raise HTTPException(400, "Tikish 10 dan 1 000 000 coin gacha bo'lishi kerak")
-
-    with db() as c:
-        # Bir o'yin turida bir vaqtda navbatga qo'shilishlarni ketma-ket bajaradi.
-        c.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (g.game_code,))
-        user = c.execute("SELECT balance FROM users WHERE id=%s FOR UPDATE", (uid,)).fetchone()
-        if not user:
-            raise HTTPException(401, "Foydalanuvchi topilmadi")
-        active = c.execute("""
-            SELECT id FROM game_rooms
-            WHERE status IN ('waiting','playing')
-              AND (player1=%s OR player2=%s)
-            LIMIT 1 FOR UPDATE
-        """, (uid, uid)).fetchone()
-        if active:
-            raise HTTPException(400, "Avval joriy o'yiningizni yakunlang")
-        if user["balance"] < g.stake:
-            raise HTTPException(400, "Coin yetarli emas")
-
-        opponent = c.execute("""
-            SELECT id, player1, stake FROM game_rooms
-            WHERE game_code=%s AND status='waiting' AND stake=%s
-              AND player1<>%s
-            ORDER BY created_at, id
-            LIMIT 1 FOR UPDATE
-        """, (g.game_code, g.stake, uid)).fetchone()
-
-        c.execute("UPDATE users SET balance=balance-%s WHERE id=%s", (g.stake, uid))
-        now = int(time.time())
-        if opponent:
-            c.execute("""
-                UPDATE game_rooms
-                SET player2=%s, status='playing'
-                WHERE id=%s
-            """, (uid, opponent["id"]))
-            return {"ok": True, "room_id": opponent["id"], "status": "playing",
-                    "game_code": g.game_code, "stake": g.stake,
-                    "message": "Raqib topildi! O'yinni boshlang."}
-
-        row = c.execute("""
-            INSERT INTO game_rooms(game_code, stake, player1, status, created_at)
-            VALUES(%s,%s,%s,'waiting',%s) RETURNING id
-        """, (g.game_code, g.stake, uid, now)).fetchone()
-        return {"ok": True, "room_id": row["id"], "status": "waiting",
-                "game_code": g.game_code, "stake": g.stake,
-                "message": "Raqib kutilmoqda. Coin vaqtincha band qilindi."}
-
-
-@app.get("/api/games/room/{room_id}")
-def game_room(room_id: int, x_init_data: str = Header()):
-    uid = auth(x_init_data)
-    with db() as c:
-        r = c.execute("""
-            SELECT id, game_code, stake, player1, player2, score1, score2,
-                   winner, status, created_at, finished_at
-            FROM game_rooms WHERE id=%s
-        """, (room_id,)).fetchone()
-    if not r or uid not in (r["player1"], r["player2"]):
-        raise HTTPException(404, "O'yin topilmadi")
-    return dict(r)
-
-
-@app.post("/api/games/score")
-def submit_game_score(s: GameScore, x_init_data: str = Header()):
-    uid = auth(x_init_data)
-    if s.score < 0 or s.score > 1_000_000_000:
-        raise HTTPException(400, "Natija noto'g'ri")
-
-    with db() as c:
-        r = c.execute("SELECT * FROM game_rooms WHERE id=%s FOR UPDATE",
-                      (s.room_id,)).fetchone()
-        if not r or r["status"] != "playing" or uid not in (r["player1"], r["player2"]):
-            raise HTTPException(400, "Faol o'yin topilmadi")
-        if uid == r["player1"]:
-            if r["score1"] is not None:
-                raise HTTPException(400, "Natijangiz avval yuborilgan")
-            c.execute("UPDATE game_rooms SET score1=%s WHERE id=%s", (s.score, s.room_id))
-        else:
-            if r["score2"] is not None:
-                raise HTTPException(400, "Natijangiz avval yuborilgan")
-            c.execute("UPDATE game_rooms SET score2=%s WHERE id=%s", (s.score, s.room_id))
-
-        updated = c.execute("SELECT * FROM game_rooms WHERE id=%s FOR UPDATE",
-                            (s.room_id,)).fetchone()
-        if updated["score1"] is None or updated["score2"] is None:
-            return {"ok": True, "status": "waiting_result",
-                    "message": "Raqib natijasi kutilmoqda"}
-
-        a, b = updated["score1"], updated["score2"]
-        if a == b:
-            # Durang: ikkala o'yinchiga tikilgan coin qaytariladi.
-            c.execute("UPDATE users SET balance=balance+%s WHERE id IN (%s,%s)",
-                      (updated["stake"], updated["player1"], updated["player2"]))
-            c.execute("""
-                UPDATE game_rooms SET status='draw', finished_at=%s WHERE id=%s
-            """, (int(time.time()), s.room_id))
-            return {"ok": True, "status": "draw", "message": "Durang! Coin qaytarildi."}
-
-        winner = updated["player1"] if a > b else updated["player2"]
-        # 1.8x jami to'lov: g'olib o'z tikishining 1.8 baravarini oladi.
-        payout = (updated["stake"] * 18) // 10
-        c.execute("UPDATE users SET balance=balance+%s WHERE id=%s", (payout, winner))
-        c.execute("""
-            UPDATE game_rooms SET winner=%s, status='finished', finished_at=%s
-            WHERE id=%s
-        """, (winner, int(time.time()), s.room_id))
-        return {"ok": True, "status": "finished", "winner": winner,
-                "payout": payout, "message": "O'yin yakunlandi"}
-
-
-@app.post("/api/games/cancel/{room_id}")
-def cancel_game(room_id: int, x_init_data: str = Header()):
-    uid = auth(x_init_data)
-    with db() as c:
-        r = c.execute("SELECT * FROM game_rooms WHERE id=%s FOR UPDATE",
-                      (room_id,)).fetchone()
-        if not r or r["player1"] != uid or r["status"] != "waiting":
-            raise HTTPException(400, "Bu o'yinni bekor qilib bo'lmaydi")
-        c.execute("UPDATE users SET balance=balance+%s WHERE id=%s",
-                  (r["stake"], uid))
-        c.execute("UPDATE game_rooms SET status='cancelled', finished_at=%s WHERE id=%s",
-                  (int(time.time()), room_id))
-    return {"ok": True, "message": "O'yin bekor qilindi, coin qaytarildi"}
-
+        r = c.execute("UPDATE users SET balance=GREATEST(balance-%s,0) WHERE id=%s "
+                      "RETURNING balance", (g.amount, g.user_id)).fetchone()
+    if not r:
+        raise HTTPException(404, "Foydalanuvchi topilmadi")
+    return {"balance": r["balance"]}

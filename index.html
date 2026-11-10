@@ -8,7 +8,7 @@
 <style>
 :root{color-scheme:dark;--bg:#0e1726;--card:#17233a;--ink:#f2f5fa;--mute:#8fa0b8;--line:#263650;--acc:#f5b400;--gold:#f5b400;--ok:#3ddc97;--bad:#ff6b6b}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;padding:0 14px calc(24px + env(safe-area-inset-bottom,0px))}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;padding:0 14px calc(96px + env(safe-area-inset-bottom,0px))}
 header{position:sticky;top:0;background:var(--bg);padding:14px 0 10px;display:flex;justify-content:space-between;align-items:baseline;z-index:5}
 h1{font-size:22px;margin:0}
 .bal{font-size:18px;font-weight:700;color:var(--gold)}
@@ -31,9 +31,12 @@ button:disabled{opacity:.5}
 details{margin-top:18px}
 summary{font-weight:700;cursor:pointer;padding:8px 0}
 .adm{display:grid;gap:8px;margin-bottom:14px}
-.tabs{display:flex;gap:8px;margin-bottom:12px}
-.tab{flex:1;font-size:14px;padding:11px 4px;background:var(--card);color:var(--ink);border:1px solid var(--line)}
-.tab.on{background:var(--acc);color:#1a1300;border-color:var(--acc)}
+.tabs{position:fixed;left:0;right:0;bottom:0;z-index:10;display:flex;background:var(--card);border-top:1px solid var(--line);padding:6px 6px calc(6px + env(safe-area-inset-bottom,0px))}
+.tab{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;font-size:11px;font-weight:600;padding:6px 0;background:none;color:var(--mute);border:0;border-radius:12px}
+.tab span{font-size:22px;line-height:1}
+.tab[hidden]{display:none}
+.pic{display:block;width:100%;max-height:210px;object-fit:cover;border-radius:10px;margin-bottom:10px}
+.tab.on{color:var(--gold);background:rgba(245,180,0,.12)}
 #splash{position:fixed;inset:0;z-index:20;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:24px;background:radial-gradient(circle at 50% 30%,#22345a,#0e1726 70%);transition:opacity .4s}
 #splash.off{opacity:0;pointer-events:none}
 .hammer{font-size:76px;animation:bob 1.6s ease-in-out infinite}
@@ -42,14 +45,8 @@ summary{font-weight:700;cursor:pointer;padding:8px 0}
 #splash p{color:var(--mute);margin:0 0 30px;max-width:280px}
 #splash button{padding:14px 44px;font-size:18px;border-radius:14px}
 @media (prefers-reduced-motion:reduce){.hammer{animation:none}}
-#toast{position:fixed;left:14px;right:14px;bottom:calc(16px + env(safe-area-inset-bottom,0px));background:var(--ink);color:#0e1726;padding:12px 14px;border-radius:10px;opacity:0;pointer-events:none;transition:opacity .2s}
+#toast{position:fixed;left:14px;right:14px;bottom:calc(88px + env(safe-area-inset-bottom,0px));background:var(--ink);color:#0e1726;padding:12px 14px;border-radius:10px;opacity:0;pointer-events:none;transition:opacity .2s}
 #toast.on{opacity:1}
-.gamegrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
-.gamecard{background:var(--card);border:1px solid var(--line);border-radius:13px;padding:14px;min-height:116px}
-.gamecard .emoji{font-size:30px}.gamecard .title{font-size:15px;margin:5px 0}.gamecard button{width:100%;margin-top:9px;padding:9px}
-.game-action{width:100%;margin-top:8px}.game-big{font-size:28px;font-weight:800;text-align:center;margin:14px 0;color:var(--gold)}
-.game-options{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}.game-options button{padding:13px 6px}
-@media(min-width:600px){.gamegrid{grid-template-columns:repeat(3,minmax(0,1fr))}}
 </style>
 </head>
 <body>
@@ -61,25 +58,19 @@ summary{font-weight:700;cursor:pointer;padding:8px 0}
 </div>
 <header><h1>🔨 Auksion</h1><div class="bal"><small>Balans</small><span id="bal">0</span> coin</div></header>
 <div class="tabs">
-  <button class="tab on" id="t-act" onclick="show('act')">Faol</button>
-  <button class="tab" id="t-his" onclick="show('his')">Tugagan</button>
-  <button class="tab" id="t-game" onclick="show('game')">O'yin</button>
-  <button class="tab" id="t-top" onclick="show('top')">To'ldirish</button>
+  <button class="tab on" id="t-act" onclick="show('act')"><span>🔨</span>Auksion</button>
+  <button class="tab" id="t-his" onclick="show('his')"><span>🏁</span>Tugagan</button>
+  <button class="tab" id="t-game" onclick="show('game')"><span>🎮</span>O'yin</button>
+  <button class="tab" id="t-top" onclick="show('top')"><span>💰</span>To'ldirish</button>
+  <button class="tab" id="t-adm" onclick="show('adm')" hidden><span>🛠</span>Admin</button>
 </div>
 <main id="list"><div class="empty">Yuklanmoqda...</div></main>
 <main id="hist" hidden></main>
 <main id="gameview" hidden>
-  <div class="card">
-    <div class="title">🎮 MILLIONER ARENA</div>
-    <div class="state">10 ta mini-o'yin. Hozircha mashq rejimi — coin tikilmaydi.</div>
-    <div class="state">Raqib bilan coinli duelni yoqish uchun server tomonda ham o'yin mexanikasi va natijani tekshirish qo'shilishi kerak.</div>
-  </div>
-  <div id="gamegrid" class="gamegrid"></div>
-  <div id="gameplay" class="card" hidden>
-    <div class="top"><div class="title" id="game-title">O'yin</div><button class="tab" onclick="closeGame()">Yopish</button></div>
-    <div class="state" id="game-desc"></div>
-    <div id="game-area" style="margin-top:14px"></div>
-    <div id="game-result" class="state" style="margin-top:12px"></div>
+  <div class="card" style="text-align:center;padding:32px 16px">
+    <div style="font-size:56px">🎮</div>
+    <div class="title" style="margin-top:8px">O'yinlar bo'limi</div>
+    <div class="state">Tez orada shu yerda o'yinlar paydo bo'ladi.</div>
   </div>
 </main>
 <main id="topup" hidden>
@@ -94,12 +85,13 @@ summary{font-weight:700;cursor:pointer;padding:8px 0}
   </div>
 </main>
 
-<details id="admin" hidden>
-  <summary>Admin paneli</summary>
+<main id="adminview" hidden>
+  <div class="title" style="margin-bottom:10px">Admin paneli</div>
   <div class="adm">
     <input id="a-title" placeholder="Auksion nomi">
     <input id="a-price" type="number" inputmode="numeric" placeholder="Boshlang'ich narx (coin)">
     <input id="a-min" type="number" inputmode="numeric" placeholder="Davomiyligi (daqiqa)">
+    <input id="a-img" type="file" accept="image/*">
     <button onclick="addAuction()">Auksion yaratish</button>
   </div>
   <div class="adm">
@@ -107,7 +99,12 @@ summary{font-weight:700;cursor:pointer;padding:8px 0}
     <input id="g-amt" type="number" inputmode="numeric" placeholder="Coin miqdori">
     <button onclick="giveCoin()">Coin berish</button>
   </div>
-</details>
+  <div class="adm">
+    <input id="x-id" type="number" inputmode="numeric" placeholder="Foydalanuvchi Telegram ID">
+    <input id="x-amt" type="number" inputmode="numeric" placeholder="Ayiriladigan coin miqdori">
+    <button onclick="takeCoin()">Coin ayirish (bekor qilish)</button>
+  </div>
+</main>
 <div id="toast"></div>
 
 <script>
@@ -150,6 +147,7 @@ function render() {
     const state = a.is_top ? '<div class="state win">Siz yetakchisiz</div>'
       : '<div class="state">' + (a.has_bids ? "Stavka qo'yilgan" : "Hali stavka yo'q") + "</div>";
     return `<div class="card">
+      ${a.image ? `<img class="pic" src="/api/auction/${a.id}/image" alt="">` : ""}
       <div class="top"><div class="title">${esc(a.title)}</div><div class="time" data-end="${a.ends_at}"></div></div>
       <div class="price">${a.price} <span>coin</span></div>${state}${note}
       <div class="row">
@@ -178,7 +176,7 @@ async function load() {
     document.getElementById("bal").textContent = me.balance;
     friends = !!me.friends_mode;
     document.getElementById("t-top").hidden = friends;
-    document.getElementById("admin").hidden = !me.is_admin;
+    document.getElementById("t-adm").hidden = !me.is_admin;
     items = list; render();
   } catch (e) {
     document.getElementById("list").innerHTML = '<div class="empty">' + esc(e.message) + "</div>";
@@ -198,12 +196,40 @@ async function bid(id, btn) {
   } catch (e) { toast(e.message); btn.disabled = false; }
 }
 
+function readImage(file) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const k = Math.min(1, 640 / Math.max(img.width, img.height));
+      const c = document.createElement("canvas");
+      c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+      resolve(c.toDataURL("image/jpeg", 0.72).split(",")[1]);
+    };
+    img.onerror = () => reject(new Error("Rasm o'qilmadi"));
+    img.src = URL.createObjectURL(file);
+  });
+}
+
+async function takeCoin() {
+  try {
+    const r = await api("/api/admin/take", {
+      user_id: parseInt(document.getElementById("x-id").value, 10),
+      amount: parseInt(document.getElementById("x-amt").value, 10)
+    });
+    toast("Ayirildi. Yangi balans: " + r.balance);
+  } catch (e) { toast(e.message); }
+}
+
 async function addAuction() {
   try {
+    const f = document.getElementById("a-img").files[0];
+    const image = f ? await readImage(f) : "";
     await api("/api/admin/auction", {
       title: document.getElementById("a-title").value.trim(),
       start_price: parseInt(document.getElementById("a-price").value, 10),
-      minutes: parseInt(document.getElementById("a-min").value, 10)
+      minutes: parseInt(document.getElementById("a-min").value, 10),
+      image
     });
     toast("Auksion yaratildi"); load();
   } catch (e) { toast(e.message); }
@@ -219,78 +245,6 @@ async function giveCoin() {
   } catch (e) { toast(e.message); }
 }
 
-
-const GAME_LIST = [
-  ["reaction","⚡","Reaksiya","Yashil signal chiqqanda tez bosing"],
-  ["math","🧠","Matematika","Misolni tez va to'g'ri yeching"],
-  ["memory","🧩","Xotira","Raqamlar ketma-ketligini eslab qoling"],
-  ["guess","🎯","Sonni top","Yashirin sonni topishga harakat qiling"],
-  ["rps","✊","Tosh-qaychi-qog'oz","Kompyuterga qarshi o'ynang"],
-  ["evenodd","🔢","Juft yoki toq","Son juftmi yoki toqmi?"],
-  ["color","🎨","Rang sinovi","So'zdagi rangni emas, rangni tanlang"],
-  ["count","🍎","Tez sanash","Belgilar sonini aniqlang"],
-  ["higher","📈","Yuqori yoki past","Keyingi son kattaroqmi yoki kichik?"],
-  ["quiz","🏆","Bilimlar bellashuvi","Qisqa savollarga javob bering"]
-];
-let activeGame = null, gameTimer = null, gameScore = 0, gameStep = 0, gameData = {};
-function drawGames(){
-  document.getElementById("gamegrid").innerHTML = GAME_LIST.map(g =>
-    `<div class="gamecard"><div class="emoji">${g[1]}</div><div class="title">${g[2]}</div><div class="state">${g[3]}</div><button onclick="openGame('${g[0]}')">O'ynash</button></div>`
-  ).join("");
-}
-function openGame(id){
-  clearTimeout(gameTimer); activeGame=id; gameScore=0; gameStep=0; gameData={};
-  const g=GAME_LIST.find(x=>x[0]===id);
-  document.getElementById("gameplay").hidden=false;
-  document.getElementById("game-title").textContent=g[1]+" "+g[2];
-  document.getElementById("game-desc").textContent=g[3];
-  document.getElementById("game-result").textContent="";
-  startMiniGame();
-  document.getElementById("gameplay").scrollIntoView({behavior:"smooth",block:"start"});
-}
-function closeGame(){clearTimeout(gameTimer);document.getElementById("gameplay").hidden=true;}
-function gameArea(html){document.getElementById("game-area").innerHTML=html;}
-function gameDone(msg){clearTimeout(gameTimer);gameArea('<div class="game-big">'+gameScore+' ball</div><button class="game-action" onclick="openGame(\''+activeGame+'\')">Qayta o\'ynash</button>');document.getElementById("game-result").textContent=msg;}
-function startMiniGame(){
- const area=document.getElementById("game-area");
- if(activeGame==="reaction"){
-   area.innerHTML='<div class="game-big" id="reactbox">Tayyorlaning...</div><button class="game-action" id="reactbtn" disabled>KUTING</button>';
-   let fired=false, start=0;
-   const delay=1200+Math.random()*2500;
-   gameTimer=setTimeout(()=>{fired=true;start=Date.now();document.getElementById("reactbox").textContent="HOZIR!";const b=document.getElementById("reactbtn");b.disabled=false;b.textContent="BOSING";b.onclick=()=>{if(!fired)return;gameScore=Math.max(0,1000-(Date.now()-start));gameDone("Reaksiya vaqtingiz: "+(Date.now()-start)+" ms");};},delay);
-   document.getElementById("reactbtn").onclick=()=>{if(!fired){clearTimeout(gameTimer);gameDone("Juda erta bosdingiz!");}};
- } else if(activeGame==="math"){
-   const a=2+Math.floor(Math.random()*20),b=2+Math.floor(Math.random()*20),op=Math.random()<.5?"+":"×",ans=op==="+"?a+b:a*b;
-   area.innerHTML=`<div class="game-big">${a} ${op} ${b} = ?</div><div class="game-options">${[ans,ans+2,ans-1,ans+5].sort(()=>Math.random()-.5).map(n=>`<button onclick="answerGame(${n===ans})">${n}</button>`).join("")}</div>`;
-   gameData={ans}; 
- } else if(activeGame==="guess"){
-   gameData.secret=1+Math.floor(Math.random()*20);area.innerHTML='<div class="game-big">1 dan 20 gacha son</div><div class="row"><input id="guessval" type="number" min="1" max="20" placeholder="Son"><button onclick="guessGame()">Tekshirish</button></div>';
- } else if(activeGame==="rps"){
-   area.innerHTML='<div class="game-big">Tanlang</div><div class="game-options"><button onclick="rpsGame(0)">✊ Tosh</button><button onclick="rpsGame(1)">✌️ Qaychi</button><button onclick="rpsGame(2)">✋ Qog\'oz</button></div>';
- } else if(activeGame==="evenodd"){
-   gameData.n=1+Math.floor(Math.random()*99);area.innerHTML=`<div class="game-big">${gameData.n}</div><div class="game-options"><button onclick="answerGame(${gameData.n%2===0})">Juft</button><button onclick="answerGame(${gameData.n%2===1})">Toq</button></div>`;
- } else if(activeGame==="color"){
-   const colors=[["QIZIL","#ff5555"],["KO'K","#4c9aff"],["YASHIL","#38d996"],["SARIQ","#f5c542"]];
-   const word=colors[Math.floor(Math.random()*4)],ink=colors[Math.floor(Math.random()*4)];
-   gameData.correct=word[1]===ink[1];area.innerHTML=`<div class="game-big" style="color:${ink[1]}">${word[0]}</div><div class="game-options"><button onclick="answerGame(${gameData.correct})">Rang mos</button><button onclick="answerGame(${!gameData.correct})">Rang boshqa</button></div>`;
- } else if(activeGame==="count"){
-   const n=3+Math.floor(Math.random()*8);gameData.n=n;area.innerHTML=`<div class="game-big">${"🍎 ".repeat(n)}</div><div class="game-options">${[n,n+1,n-1,n+2].sort(()=>Math.random()-.5).map(x=>`<button onclick="answerGame(${x===n})">${x}</button>`).join("")}</div>`;
- } else if(activeGame==="higher"){
-   const a=1+Math.floor(Math.random()*50),b=1+Math.floor(Math.random()*50);gameData.correct=b>a;area.innerHTML=`<div class="game-big">${a} ➜ ${b} ?</div><div class="game-options"><button onclick="answerGame(${b>a})">Yuqori</button><button onclick="answerGame(${b<a})">Past</button></div>`;
- } else if(activeGame==="memory"){
-   const seq=Array.from({length:4},()=>1+Math.floor(Math.random()*9));gameData.seq=seq;
-   area.innerHTML=`<div class="game-big" id="memseq">${seq.join(" · ")}</div><div class="state">Ketma-ketlikni eslab qoling...</div>`;
-   gameTimer=setTimeout(()=>{const el=document.getElementById("memseq");if(!el)return;el.textContent="? · ? · ? · ?";area.innerHTML='<div class="row"><input id="memval" placeholder="Masalan: 1234" inputmode="numeric"><button onclick="memoryGame()">Tekshirish</button></div>';},1800);
- } else if(activeGame==="quiz"){
-   const qs=[["O'zbekiston poytaxti?","Toshkent",["Samarqand","Toshkent","Buxoro","Xiva"]],["Bir haftada necha kun?","7",["5","6","7","8"]],["10 × 5 nechchi?","50",["15","40","50","60"]]];
-   const q=qs[Math.floor(Math.random()*qs.length)];gameData.answer=q[1];area.innerHTML=`<div class="game-big" style="font-size:21px">${q[0]}</div><div class="game-options">${q[2].map(x=>`<button onclick="answerGame('${x}'==='${q[1]}')">${x}</button>`).join("")}</div>`;
- }
-}
-function answerGame(ok){gameScore=ok?100:0;gameDone(ok?"To'g'ri javob!":"Noto'g'ri javob.");}
-function guessGame(){const v=Number(document.getElementById("guessval").value);if(!v)return toast("Son kiriting");gameScore=v===gameData.secret?100:0;gameDone(v===gameData.secret?"Topdingiz!":"Yashirin son: "+gameData.secret);}
-function rpsGame(v){const c=Math.floor(Math.random()*3),names=["Tosh","Qaychi","Qog'oz"];const win=(v-c+3)%3===1;gameScore=v===c?50:win?100:0;gameDone("Siz: "+names[v]+". Raqib: "+names[c]+". "+(v===c?"Durrang":win?"Siz yutdingiz":"Yutqazdingiz"));}
-function memoryGame(){const v=(document.getElementById("memval").value||"").replace(/\D/g,"");const ok=v===gameData.seq.join("");gameScore=ok?100:0;gameDone(ok?"Ketma-ketlikni topdingiz!":"To'g'ri javob: "+gameData.seq.join(""));}
-
 try { tg.setHeaderColor("#0e1726"); tg.setBackgroundColor("#0e1726"); } catch (e) {}
 const me0 = tg.initDataUnsafe && tg.initDataUnsafe.user;
 if (me0 && me0.first_name)
@@ -301,7 +255,7 @@ setTimeout(closeSplash, 3500);
 let tab = "act";
 function show(t) {
   tab = t;
-  for (const [k, id] of [["act", "list"], ["his", "hist"], ["game", "gameview"], ["top", "topup"]]) {
+  for (const [k, id] of [["act", "list"], ["his", "hist"], ["game", "gameview"], ["top", "topup"], ["adm", "adminview"]]) {
     document.getElementById(id).hidden = t !== k;
     document.getElementById("t-" + k).classList.toggle("on", t === k);
   }
@@ -340,7 +294,6 @@ async function loadHist() {
   } catch (e) { box.innerHTML = '<div class="empty">' + esc(e.message) + "</div>"; }
 }
 
-drawGames();
 load();
 setInterval(tick, 1000);
 setInterval(() => { load(); if (tab === "his") loadHist(); }, 15000);
