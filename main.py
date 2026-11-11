@@ -1,4 +1,5 @@
 import os, re, json, hmac, hashlib, time, asyncio, base64
+import html as _html
 import urllib.request
 from urllib.parse import parse_qsl, urlencode
 from contextlib import asynccontextmanager
@@ -94,6 +95,55 @@ def notify(chat_id, text):
     tg("sendMessage", chat_id=chat_id, text=text)
 
 
+def esc_h(t):
+    return _html.escape(str(t), quote=False)
+
+
+def fmt(n):
+    return f"{int(n):,}".replace(",", " ")
+
+
+def card(chat_id, text, rows=None):
+    """Chiroyli (HTML) xabar va ixtiyoriy tugmalar yuboradi."""
+    p = {"chat_id": chat_id, "text": text, "parse_mode": "HTML",
+         "disable_web_page_preview": "true"}
+    rows = [r for r in (rows or []) if r]
+    if rows:
+        p["reply_markup"] = json.dumps({"inline_keyboard": rows})
+    return tg("sendMessage", **p)
+
+
+def open_btn():
+    base = os.environ.get("BASE_URL") or os.environ.get("RENDER_EXTERNAL_URL")
+    if not base:
+        return []
+    return [{"text": "🔨  Auksionni ochish", "web_app": {"url": base}, "style": "primary"}]
+
+
+def admin_btn(text):
+    name = admin_username()
+    if not name:
+        return []
+    return [{"text": "💬  Admin bilan bog'lanish", "style": "primary",
+             "url": f"https://t.me/{name}?" + urlencode({"text": text})}]
+
+
+def topup_rows(tid, uid):
+    return [[{"text": "✅  Tasdiqlash", "callback_data": f"ok:{tid}", "style": "success"},
+             {"text": "❌  Rad etish", "callback_data": f"no:{tid}", "style": "danger"}],
+            [{"text": "💬  Foydalanuvchi bilan chat", "url": f"tg://user?id={uid}"}]]
+
+
+def topup_text(tid, name, uid, coins):
+    return (f"<b>💰 Yangi coin so'rovi</b>  <code>#{tid}</code>\n"
+            f"━━━━━━━━━━━━━━\n"
+            f"👤 <b>{esc_h(name)}</b>  ·  <code>{uid}</code>\n"
+            f"🪙 Miqdor: <b>{fmt(coins)} coin</b>\n"
+            f"💵 To'lov: <b>{fmt(coins * COIN_PRICE)} so'm</b>\n"
+            f"━━━━━━━━━━━━━━\n"
+            f"<i>To'lovni lichkada olgach, tasdiqlang.</i>")
+
+
 def set_webhook():
     base = os.environ.get("BASE_URL") or os.environ.get("RENDER_EXTERNAL_URL")
     if base:
@@ -124,11 +174,23 @@ def close_expired():
             continue
         with db() as c:
             c.execute("UPDATE users SET wins=COALESCE(wins,0)+1 WHERE id=%s", (r["top_user"],))
-        notify(r["top_user"],
-               f"Tabriklaymiz! Siz {r['title']} auksionida {r['top_bid']} coin bilan yutdingiz.")
+        with db() as c:
+            w = c.execute("SELECT name FROM users WHERE id=%s", (r["top_user"],)).fetchone()
+        wname = (w["name"] if w else "") or "G'olib"
+        card(r["top_user"],
+             f"🏆 <b>Tabriklaymiz, siz g'olibsiz!</b>\n\n"
+             f"🔨 Auksion: <b>{esc_h(r['title'])}</b>\n"
+             f"🪙 Yakuniy stavka: <b>{fmt(r['top_bid'])} coin</b>\n\n"
+             f"🎁 <b>Sovg'angizni olish uchun</b> admin bilan bog'laning, pastdagi tugmani bosing 👇",
+             [admin_btn(f"Salom! \"{r['title']}\" auksionida yutdim, sovg'amni olmoqchiman."),
+              open_btn()])
         for admin in ADMINS:
-            notify(admin,
-                   f"Auksion tugadi: {r['title']}. G'olib ID: {r['top_user']}, stavka: {r['top_bid']} coin.")
+            card(admin,
+                 f"🏁 <b>Auksion yakunlandi</b>\n\n"
+                 f"🔨 <b>{esc_h(r['title'])}</b>\n"
+                 f"🏆 G'olib: <b>{esc_h(wname)}</b>  ·  <code>{r['top_user']}</code>\n"
+                 f"🪙 Stavka: <b>{fmt(r['top_bid'])} coin</b>",
+                 [[{"text": "💬  G'olib bilan chat", "url": f"tg://user?id={r['top_user']}"}]])
 
 
 async def closer():
@@ -265,8 +327,10 @@ def pay_referral(uid):
                       (REFERRAL_BONUS, r["referrer"]))
             log_coin(c, r["referrer"], REFERRAL_BONUS, "referral")
     if r:
-        notify(r["referrer"], f"Taklif qilgan do'stingiz birinchi stavkasini qo'ydi. "
-                              f"Sizga {REFERRAL_BONUS} coin bonus berildi.")
+        card(r["referrer"],
+             f"🎁 <b>Do'stingiz faol bo'ldi!</b>\n\n"
+             f"Taklif qilgan do'stingiz birinchi stavkasini qo'ydi.\n"
+             f"🪙 Sizga <b>+{fmt(REFERRAL_BONUS)} coin</b> bonus berildi.", [open_btn()])
 
 
 _BOT_NAME = None
@@ -462,14 +526,9 @@ def topup(t: TopUp, x_init_data: str = Header()):
         row = c.execute("INSERT INTO topups(user_id,coins,ts) VALUES(%s,%s,%s) RETURNING id",
                         (uid, t.coins, int(time.time()))).fetchone()
         u = c.execute("SELECT name FROM users WHERE id=%s", (uid,)).fetchone()
-    kb = json.dumps({"inline_keyboard": [[
-        {"text": "Tasdiqlash", "callback_data": f"ok:{row['id']}"},
-        {"text": "Rad etish", "callback_data": f"no:{row['id']}"}]]})
     for admin in ADMINS:
-        tg("sendMessage", chat_id=admin, reply_markup=kb,
-           text=f"Coin so'rovi #{row['id']}\nFoydalanuvchi: {u['name']} (ID {uid})\n"
-                f"Miqdor: {t.coins} coin ({t.coins * COIN_PRICE} so'm)\n"
-                f"To'lovni lichkada olgach, Tasdiqlash ni bosing.")
+        card(admin, topup_text(row["id"], u["name"] or "Foydalanuvchi", uid, t.coins),
+             topup_rows(row["id"], uid))
     name = admin_username()
     link = ""
     if name:
@@ -489,12 +548,22 @@ def handle_start(m, param):
         # faqat yangi foydalanuvchi taklif hisobiga o'tadi
         c.execute("INSERT INTO users(id,name,referrer) VALUES(%s,%s,%s) ON CONFLICT(id) DO NOTHING",
                   (uid, m["from"].get("first_name", ""), ref))
-    base = os.environ.get("BASE_URL") or os.environ.get("RENDER_EXTERNAL_URL")
-    params = {"chat_id": uid, "text": "Auksionga xush kelibsiz! Pastdagi tugma orqali kiring."}
-    if base:
-        params["reply_markup"] = json.dumps({"inline_keyboard": [[
-            {"text": "🔨 Auksionni ochish", "web_app": {"url": base}}]]})
-    tg("sendMessage", **params)
+    bot = bot_username()
+    share = []
+    if bot:
+        link = f"https://t.me/{bot}?start=ref_{uid}"
+        share = [{"text": "🎁  Do'stlarni taklif qilish",
+                  "url": "https://t.me/share/url?" + urlencode(
+                      {"url": link, "text": f"Auksionga qo'shiling va {WELCOME_BONUS} coin sovg'a oling!"})}]
+    name = esc_h(m["from"].get("first_name", "") or "do'stim")
+    card(uid,
+         f"<b>🔨 Auksionga xush kelibsiz, {name}!</b>\n\n"
+         f"💎 Noyob mahsulotlarga <b>stavka qo'ying</b>\n"
+         f"✅ Vazifalarni bajarib <b>coin yig'ing</b>\n"
+         f"🎁 Do'stlaringizni taklif qilib <b>bonus oling</b>\n"
+         f"🏆 Reytingda <b>peshqadam</b> bo'ling\n\n"
+         f"<i>Boshlash uchun pastdagi tugmani bosing 👇</i>",
+         [open_btn(), share])
 
 
 def handle_message(m):
@@ -508,15 +577,12 @@ def handle_message(m):
         if not t:
             notify(uid, "Avval Mini App'da To'ldirish bo'limida so'rov yarating, keyin chekni yuboring.")
             return
-        cap = (f"So'rov #{t['id']}\nFoydalanuvchi: {m['from'].get('first_name', '')} (ID {uid})\n"
-               f"Miqdor: {t['coins']} coin ({t['coins'] * COIN_PRICE} so'm)")
-        kb = json.dumps({"inline_keyboard": [[
-            {"text": "Tasdiqlash", "callback_data": f"ok:{t['id']}"},
-            {"text": "Rad etish", "callback_data": f"no:{t['id']}"}]]})
+        cap = topup_text(t["id"], m["from"].get("first_name", "") or "Foydalanuvchi", uid, t["coins"])
+        kb = json.dumps({"inline_keyboard": topup_rows(t["id"], uid)})
         for admin in ADMINS:
-            tg("copyMessage", chat_id=admin, from_chat_id=uid,
-               message_id=m["message_id"], caption=cap, reply_markup=kb)
-        notify(uid, f"Chek qabul qilindi. So'rov #{t['id']} admin tomonidan tekshirilmoqda.")
+            tg("copyMessage", chat_id=admin, from_chat_id=uid, message_id=m["message_id"],
+               caption=cap, parse_mode="HTML", reply_markup=kb)
+        card(uid, f"📨 <b>Chek qabul qilindi</b>  <code>#{t['id']}</code>\n\nAdmin tekshirmoqda, tez orada javob beramiz.")
     else:
         text = m.get("text") or ""
         if text.startswith("/start"):
@@ -580,15 +646,23 @@ def handle_callback(cb):
         return
     tg("answerCallbackQuery", callback_query_id=cb["id"], text="Bajarildi")
     if new == "approved":
-        notify(t["user_id"], f"So'rov #{tid} tasdiqlandi. Hisobingizga {t['coins']} coin qo'shildi.")
-        status = "TASDIQLANDI"
+        card(t["user_id"],
+             f"✅ <b>To'lov tasdiqlandi!</b>\n\n"
+             f"🪙 Hisobingizga <b>+{fmt(t['coins'])} coin</b> qo'shildi.\nOmad tilaymiz! 🍀",
+             [open_btn()])
+        head = "✅ <b>TASDIQLANDI</b>"
     else:
-        notify(t["user_id"], f"So'rov #{tid} rad etildi. Savol bo'lsa admin bilan bog'laning.")
-        status = "RAD ETILDI"
+        card(t["user_id"],
+             f"❌ <b>So'rov rad etildi</b>  <code>#{tid}</code>\n\n"
+             f"Savollaringiz bo'lsa, admin bilan bog'laning 👇",
+             [admin_btn("Salom! Coin so'rovim bo'yicha savolim bor.")])
+        head = "❌ <b>RAD ETILDI</b>"
     msg = cb.get("message")
     if msg:
-        tg("editMessageCaption", chat_id=msg["chat"]["id"], message_id=msg["message_id"],
-           caption=f"So'rov #{tid}: {status} ({t['coins']} coin)")
+        txt = f"{head}  <code>#{tid}</code>\n🪙 {fmt(t['coins'])} coin  ·  👤 <code>{t['user_id']}</code>"
+        ids = dict(chat_id=msg["chat"]["id"], message_id=msg["message_id"], parse_mode="HTML")
+        if not tg("editMessageText", text=txt, **ids):
+            tg("editMessageCaption", caption=txt, **ids)
 
 
 @app.post("/webhook")
