@@ -74,6 +74,10 @@ button.ghost{background:var(--card2);color:var(--ink);box-shadow:none;border:1px
 @media (prefers-reduced-motion:reduce){.hammer{animation:none}}
 #toast{position:fixed;left:14px;right:14px;bottom:calc(112px + env(safe-area-inset-bottom,0px));background:var(--ink);color:#0a1020;padding:13px 16px;border-radius:14px;font-weight:600;opacity:0;pointer-events:none;transition:opacity .2s;z-index:30}
 #toast.on{opacity:1}
+.ava img{width:100%;height:100%;border-radius:50%;object-fit:cover;display:block}
+.seg{display:flex;gap:4px;background:var(--card2);padding:4px;border-radius:14px;margin-bottom:10px}
+.seg button{flex:1;padding:9px 0;font-size:13px;background:transparent;color:var(--mute);box-shadow:none;border-radius:11px}
+.seg button.on{background:var(--g);color:#231700}
 </style>
 </head>
 <body>
@@ -134,17 +138,23 @@ button.ghost{background:var(--card2);color:var(--ink);box-shadow:none;border:1px
 <main id="rateview" hidden>
   <button class="back" onclick="show('prof')">← Profil</button>
   <div class="title" style="margin:4px 0 10px">Reyting</div>
-  <div class="state" style="margin-bottom:12px">Eng ko'p coini borlar tepada.</div>
+  <div class="seg" id="rate-seg">
+    <button data-p="day" class="on" onclick="setPeriod('day')">Kunlik</button>
+    <button data-p="week" onclick="setPeriod('week')">Haftalik</button>
+    <button data-p="month" onclick="setPeriod('month')">Oylik</button>
+    <button data-p="all" onclick="setPeriod('all')">Umumiy</button>
+  </div>
+  <div class="state" id="rate-note" style="margin-bottom:12px"></div>
   <div id="rate-list"></div>
 </main>
 <main id="topup" hidden>
   <button class="back" onclick="show('prof')">← Profil</button>
   <div class="card">
     <div class="title">Balansni to'ldirish</div>
-    <div class="state">Coin miqdorini kiriting, kartaga o'tkazma qiling va chek rasmini bot chatiga yuboring. Admin tasdiqlagach coin hisobingizga tushadi.</div>
+    <div class="state">Coin miqdorini kiriting va tugmani bosing. Admin bilan shaxsiy chat ochiladi, to'lov tafsilotlarini admin o'zi yozadi. To'lov tasdiqlangach coin hisobingizga tushadi.</div>
     <div class="row">
       <input id="tp-coins" type="number" inputmode="numeric" placeholder="Coin miqdori">
-      <button onclick="reqTopup(this)">So'rov yuborish</button>
+      <button onclick="reqTopup(this)">Admin bilan bog'lanish</button>
     </div>
     <div id="tp-res"></div>
   </div>
@@ -256,7 +266,10 @@ async function load() {
     document.getElementById("pb-top").hidden = friends;
     const nm = (me0 && me0.first_name) || "Foydalanuvchi";
     document.getElementById("pf-name").textContent = nm;
-    document.getElementById("pf-ava").textContent = nm.charAt(0).toUpperCase();
+    const av = document.getElementById("pf-ava");
+    if (me0 && me0.photo_url) av.innerHTML = `<img src="${esc(me0.photo_url)}" alt="" referrerpolicy="no-referrer">`;
+    else av.textContent = nm.charAt(0).toUpperCase();
+    if (me.welcome) toast("Xush kelibsiz! Sizga " + me.welcome + " coin sovg'a qilindi");
     document.getElementById("pf-id").textContent = me.id;
     document.getElementById("pf-wins").textContent = me.wins;
     document.getElementById("pb-adm").hidden = !me.is_admin;
@@ -378,15 +391,32 @@ function clearEnded() {
   });
 }
 
+let ratePeriod = "day";
+const RATE_NOTE = {
+  day: "Oxirgi 24 soatda vazifa, taklif va to'ldirish orqali yig'ilgan coin.",
+  week: "Oxirgi 7 kunda vazifa, taklif va to'ldirish orqali yig'ilgan coin.",
+  month: "Oxirgi 30 kunda vazifa, taklif va to'ldirish orqali yig'ilgan coin.",
+  all: "Hozirgi coin balansi bo'yicha."
+};
+function setPeriod(p) {
+  ratePeriod = p;
+  document.querySelectorAll("#rate-seg button").forEach(b => b.classList.toggle("on", b.dataset.p === p));
+  loadRate();
+}
 async function loadRate() {
+  document.getElementById("rate-note").textContent = RATE_NOTE[ratePeriod];
   try {
-    const list = await api("/api/rating");
-    document.getElementById("rate-list").innerHTML = list.map((u, i) =>
-      `<div class="card ru"><div class="rk ${i < 3 ? "r" + (i + 1) : ""}">${i + 1}</div>
-       <div class="ava sm">${esc((u.name || "?").charAt(0).toUpperCase())}</div>
-       <div class="un">${esc(u.name)}${u.me ? " (siz)" : ""}</div>
-       <div class="rw"><i class="coin"></i>${u.coins}</div></div>`).join("")
-      || `<div class="empty">Hali foydalanuvchi yo'q</div>`;
+    const list = await api("/api/rating?period=" + ratePeriod);
+    document.getElementById("rate-list").innerHTML = list.map((u, i) => {
+      const ini = esc((u.name || "?").charAt(0).toUpperCase());
+      const face = u.photo
+        ? `<img src="${esc(u.photo)}" alt="" referrerpolicy="no-referrer" data-i="${ini}" onerror="this.replaceWith(this.dataset.i)">`
+        : ini;
+      return `<div class="card ru"><div class="rk ${i < 3 ? "r" + (i + 1) : ""}">${i + 1}</div>
+        <div class="ava sm">${face}</div>
+        <div class="un">${esc(u.name)}${u.me ? " (siz)" : ""}</div>
+        <div class="rw"><i class="coin"></i>${u.coins}</div></div>`;
+    }).join("") || `<div class="empty">Bu davrda hali faollik yo'q</div>`;
   } catch (e) { toast(e.message); }
 }
 
@@ -473,11 +503,11 @@ async function reqTopup(btn) {
   try {
     const r = await api("/api/topup", {coins});
     document.getElementById("tp-res").innerHTML =
-      `<div class="state win" style="margin-top:12px">So'rov #${r.id} yaratildi</div>
+      `<div class="state win" style="margin-top:12px">So'rov #${r.id} yuborildi</div>
        <div class="price">${r.sum} <span>so'm</span></div>
-       <div class="state">Shu kartaga o'tkazing:<br><b>${esc(r.card)}</b></div>
-       <div class="state">Keyin chek rasmini bot chatiga yuboring. Admin tasdiqlagach ${r.coins} coin balansga qo'shiladi.</div>
-       <button onclick="tg.close()">Bot chatiga o'tish</button>`;
+       <div class="state">${r.admin_link ? "Admin bilan chat ochilmoqda." : "So'rovingiz adminga yetib bordi, u siz bilan bog'lanadi."}</div>
+       ${r.admin_link ? `<button data-u="${esc(r.admin_link)}" onclick="openUrl(this.dataset.u)">Admin bilan chatni ochish</button>` : ""}`;
+    if (r.admin_link) tg.openTelegramLink(r.admin_link);
   } catch (e) { toast(e.message); }
   btn.disabled = false;
 }

@@ -14,6 +14,8 @@ ADMINS = {int(x) for x in os.environ.get("ADMIN_IDS", "").split(",") if x.strip(
 CARD_INFO = os.environ.get("CARD_INFO", "Karta ma'lumoti kiritilmagan, admin bilan bog'laning")
 COIN_PRICE = int(os.environ.get("COIN_PRICE", "1000"))  # 1 coin necha so'm
 REFERRAL_BONUS = int(os.environ.get("REFERRAL_BONUS", "50"))  # taklif qilganga bonus (coin)
+WELCOME_BONUS = int(os.environ.get("WELCOME_BONUS", "100"))  # yangi o'yinchiga (coin)
+ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME", "").lstrip("@")  # to'lov uchun admin lichkasi
 FRIENDS_MODE = os.environ.get("FRIENDS_MODE", "0") == "1"  # do'stlar rejimi: pulsiz
 WEBHOOK_SECRET = hashlib.sha256(BOT_TOKEN.encode()).hexdigest()[:32]
 
@@ -21,6 +23,12 @@ WEBHOOK_SECRET = hashlib.sha256(BOT_TOKEN.encode()).hexdigest()[:32]
 def db():
     # "with db() as c:" blok oxirida avtomatik saqlaydi (xato bo'lsa bekor qiladi)
     return psycopg.connect(DATABASE_URL, row_factory=dict_row, prepare_threshold=None)
+
+
+def log_coin(c, uid, amount, kind):
+    """Coin tushumlarini yozib boradi (kunlik/haftalik/oylik reyting uchun)."""
+    c.execute("INSERT INTO coin_log(user_id,amount,kind,ts) VALUES(%s,%s,%s,%s)",
+              (uid, amount, kind, int(time.time())))
 
 
 def init_db():
@@ -49,6 +57,14 @@ def init_db():
             id BIGSERIAL PRIMARY KEY, user_id BIGINT, coins BIGINT,
             status TEXT DEFAULT 'pending', ts BIGINT)""")
         c.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS points BIGINT DEFAULT 0")
+        c.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS photo TEXT")
+        # eski foydalanuvchilar "kutib olingan" hisoblanadi, bonus faqat yangilarga beriladi
+        c.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS welcomed BOOLEAN")
+        c.execute("UPDATE users SET welcomed=TRUE WHERE welcomed IS NULL")
+        c.execute("ALTER TABLE users ALTER COLUMN welcomed SET DEFAULT FALSE")
+        c.execute("""CREATE TABLE IF NOT EXISTS coin_log(
+            id BIGSERIAL PRIMARY KEY, user_id BIGINT, amount BIGINT, kind TEXT, ts BIGINT)""")
+        c.execute("CREATE INDEX IF NOT EXISTS coin_log_ts ON coin_log(ts)")
         c.execute("""CREATE TABLE IF NOT EXISTS duels(
             id BIGSERIAL PRIMARY KEY, p1 BIGINT, p2 BIGINT, m1 TEXT, m2 TEXT,
             status TEXT DEFAULT 'waiting', winner BIGINT, ts BIGINT)""")
@@ -131,9 +147,10 @@ def auth(init_data: str) -> int:
     except Exception:
         raise HTTPException(401, "Avtorizatsiya xato")
     with db() as c:
-        c.execute("INSERT INTO users(id,name) VALUES(%s,%s) "
-                  "ON CONFLICT(id) DO UPDATE SET name=EXCLUDED.name",
-                  (u["id"], u.get("first_name", "")))
+        c.execute("INSERT INTO users(id,name,photo) VALUES(%s,%s,%s) "
+                  "ON CONFLICT(id) DO UPDATE SET name=EXCLUDED.name, "
+                  "photo=COALESCE(EXCLUDED.photo, users.photo)",
+                  (u["id"], u.get("first_name", ""), u.get("photo_url")))
     return u["id"]
 
 
@@ -150,10 +167,17 @@ def health():
 @app.get("/api/me")
 def me(x_init_data: str = Header()):
     uid = auth(x_init_data)
+    welcome = 0
     with db() as c:
+        g = c.execute("UPDATE users SET balance=balance+%s, welcomed=TRUE "
+                      "WHERE id=%s AND NOT COALESCE(welcomed, FALSE) RETURNING id",
+                      (WELCOME_BONUS, uid)).fetchone()
+        if g and WELCOME_BONUS > 0:
+            log_coin(c, uid, WELCOME_BONUS, "welcome")
+            welcome = WELCOME_BONUS
         row = c.execute("SELECT balance, COALESCE(wins,0) AS wins FROM users WHERE id=%s",
                         (uid,)).fetchone()
-    return {"id": uid, "balance": row["balance"], "wins": row["wins"],
+    return {"id": uid, "balance": row["balance"], "wins": row["wins"], "welcome": welcome,
             "is_admin": uid in ADMINS, "friends_mode": FRIENDS_MODE}
 
 
@@ -215,6 +239,7 @@ def pay_referral(uid):
         if r:
             c.execute("UPDATE users SET balance=balance+%s WHERE id=%s",
                       (REFERRAL_BONUS, r["referrer"]))
+            log_coin(c, r["referrer"], REFERRAL_BONUS, "referral")
     if r:
         notify(r["referrer"], f"Taklif qilgan do'stingiz birinchi stavkasini qo'ydi. "
                               f"Sizga {REFERRAL_BONUS} coin bonus berildi.")
@@ -395,6 +420,20 @@ def leaderboard(x_init_data: str = Header()):
                      "me": r["id"] == uid} for r in rows]}
 
 
+_ADMIN_NAME = None
+
+
+def admin_username():
+    global _ADMIN_NAME
+    if ADMIN_USERNAME:
+        return ADMIN_USERNAME
+    if not _ADMIN_NAME and ADMINS:
+        r = tg("getChat", chat_id=sorted(ADMINS)[0])
+        if r and r.get("ok"):
+            _ADMIN_NAME = r["result"].get("username")
+    return _ADMIN_NAME
+
+
 class TopUp(BaseModel):
     coins: int
 
@@ -411,8 +450,21 @@ def topup(t: TopUp, x_init_data: str = Header()):
                   "WHERE user_id=%s AND status='pending'", (uid,))
         row = c.execute("INSERT INTO topups(user_id,coins,ts) VALUES(%s,%s,%s) RETURNING id",
                         (uid, t.coins, int(time.time()))).fetchone()
-    return {"id": row["id"], "coins": t.coins,
-            "sum": t.coins * COIN_PRICE, "card": CARD_INFO}
+        u = c.execute("SELECT name FROM users WHERE id=%s", (uid,)).fetchone()
+    kb = json.dumps({"inline_keyboard": [[
+        {"text": "Tasdiqlash", "callback_data": f"ok:{row['id']}"},
+        {"text": "Rad etish", "callback_data": f"no:{row['id']}"}]]})
+    for admin in ADMINS:
+        tg("sendMessage", chat_id=admin, reply_markup=kb,
+           text=f"Coin so'rovi #{row['id']}\nFoydalanuvchi: {u['name']} (ID {uid})\n"
+                f"Miqdor: {t.coins} coin ({t.coins * COIN_PRICE} so'm)\n"
+                f"To'lovni lichkada olgach, Tasdiqlash ni bosing.")
+    name = admin_username()
+    link = ""
+    if name:
+        link = f"https://t.me/{name}?" + urlencode(
+            {"text": f"Salom! {t.coins} coin olmoqchiman (so'rov #{row['id']})."})
+    return {"id": row["id"], "coins": t.coins, "sum": t.coins * COIN_PRICE, "admin_link": link}
 
 
 def handle_start(m, param):
@@ -475,6 +527,7 @@ def handle_task_cb(cb):
             if new == "approved" and t:
                 c.execute("UPDATE users SET balance=balance+%s WHERE id=%s",
                           (t["reward"], k["user_id"]))
+                log_coin(c, k["user_id"], t["reward"], "task")
     if not k:
         tg("answerCallbackQuery", callback_query_id=cb["id"],
            text="Bu so'rov allaqachon ko'rib chiqilgan", show_alert="true")
@@ -509,6 +562,7 @@ def handle_callback(cb):
         if t and new == "approved":
             c.execute("UPDATE users SET balance=balance+%s WHERE id=%s",
                       (t["coins"], t["user_id"]))
+            log_coin(c, t["user_id"], t["coins"], "topup")
     if not t:
         tg("answerCallbackQuery", callback_query_id=cb["id"],
            text="Bu so'rov allaqachon ko'rib chiqilgan", show_alert="true")
@@ -646,12 +700,21 @@ def clear_ended(x_init_data: str = Header()):
 
 
 @app.get("/api/rating")
-def rating(x_init_data: str = Header()):
+def rating(period: str = "all", x_init_data: str = Header()):
     uid = auth(x_init_data)
+    span = {"day": 86400, "week": 7 * 86400, "month": 30 * 86400}.get(period)
     with db() as c:
-        rows = c.execute("SELECT id, name, balance FROM users "
-                         "ORDER BY balance DESC, id LIMIT 100").fetchall()
-    return [{"name": r["name"] or "Foydalanuvchi", "coins": r["balance"],
+        if span:
+            rows = c.execute(
+                "SELECT u.id, u.name, u.photo, SUM(l.amount) AS coins FROM users u "
+                "JOIN coin_log l ON l.user_id=u.id "
+                "WHERE l.ts>%s AND l.kind IN ('task','referral','topup') "
+                "GROUP BY u.id, u.name, u.photo ORDER BY coins DESC, u.id LIMIT 100",
+                (int(time.time()) - span,)).fetchall()
+        else:
+            rows = c.execute("SELECT id, name, photo, balance AS coins FROM users "
+                             "ORDER BY balance DESC, id LIMIT 100").fetchall()
+    return [{"name": r["name"] or "Foydalanuvchi", "photo": r["photo"], "coins": r["coins"],
              "me": r["id"] == uid} for r in rows]
 
 
@@ -708,6 +771,7 @@ def check_task(cl: Claim, x_init_data: str = Header()):
                       (t["id"], uid, int(time.time()))).fetchone()
         if k:
             c.execute("UPDATE users SET balance=balance+%s WHERE id=%s", (t["reward"], uid))
+            log_coin(c, uid, t["reward"], "task")
     if not k:
         raise HTTPException(400, "Bu vazifa allaqachon bajarilgan")
     return {"reward": t["reward"]}
