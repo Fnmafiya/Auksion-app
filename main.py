@@ -65,6 +65,15 @@ def init_db():
         c.execute("""CREATE TABLE IF NOT EXISTS coin_log(
             id BIGSERIAL PRIMARY KEY, user_id BIGINT, amount BIGINT, kind TEXT, ts BIGINT)""")
         c.execute("CREATE INDEX IF NOT EXISTS coin_log_ts ON coin_log(ts)")
+        # yangi qoida: har kim o'zining eng katta stavkasini "band" qiladi (eski qoidada faqat yetakchiniki)
+        c.execute("ALTER TABLE auctions ADD COLUMN IF NOT EXISTS hold_all BOOLEAN")
+        if not FRIENDS_MODE:
+            # eski faol auksionlarda yetakchi bo'lmaganlarning stavkalari allaqachon qaytarilgan edi
+            c.execute("DELETE FROM bids WHERE auction_id IN (SELECT id FROM auctions "
+                      "WHERE hold_all IS NULL AND status='active') AND user_id IS DISTINCT FROM "
+                      "(SELECT a.top_user FROM auctions a WHERE a.id=bids.auction_id)")
+        c.execute("UPDATE auctions SET hold_all=TRUE WHERE hold_all IS NULL")
+        c.execute("ALTER TABLE auctions ALTER COLUMN hold_all SET DEFAULT TRUE")
         c.execute("""CREATE TABLE IF NOT EXISTS duels(
             id BIGSERIAL PRIMARY KEY, p1 BIGINT, p2 BIGINT, m1 TEXT, m2 TEXT,
             status TEXT DEFAULT 'waiting', winner BIGINT, ts BIGINT)""")
@@ -96,8 +105,20 @@ def close_expired():
     with db() as c:
         rows = c.execute("UPDATE auctions SET status='ended' "
                          "WHERE status='active' AND ends_at<=%s "
-                         "RETURNING title, top_bid, top_user",
-                         (int(time.time()),)).fetchall()
+                         "RETURNING id, title, top_bid, top_user", (int(time.time()),)).fetchall()
+        for r in rows:
+            bids = c.execute("SELECT user_id, MAX(amount) AS m FROM bids WHERE auction_id=%s "
+                             "GROUP BY user_id", (r["id"],)).fetchall()
+            if FRIENDS_MODE:
+                spent = sum(b["m"] for b in bids)  # do'stlar rejimi: hamma stavka sarflanadi
+            else:
+                for b in bids:  # yutqazganlarga coin qaytariladi
+                    if b["user_id"] != r["top_user"]:
+                        c.execute("UPDATE users SET balance=balance+%s WHERE id=%s",
+                                  (b["m"], b["user_id"]))
+                spent = r["top_bid"] if r["top_user"] is not None else 0
+            if spent and r["top_user"] is not None:
+                log_coin(c, r["top_user"], -spent, "auction")
     for r in rows:
         if r["top_user"] is None:
             continue
@@ -186,8 +207,10 @@ def auctions(x_init_data: str = Header()):
     uid = auth(x_init_data)
     with db() as c:
         rows = c.execute("SELECT id, title, start_price, ends_at, top_bid, top_user, "
-                         "(image IS NOT NULL) AS has_image FROM auctions "
-                         "WHERE status='active' ORDER BY ends_at").fetchall()
+                         "(image IS NOT NULL) AS has_image, "
+                         "(SELECT COALESCE(MAX(b.amount),0) FROM bids b "
+                         "WHERE b.auction_id=auctions.id AND b.user_id=%s) AS my_bid "
+                         "FROM auctions WHERE status='active' ORDER BY ends_at", (uid,)).fetchall()
     return [{
         "id": r["id"], "title": r["title"],
         "price": max(r["start_price"], r["top_bid"]),
@@ -195,6 +218,7 @@ def auctions(x_init_data: str = Header()):
         "is_top": r["top_user"] == uid,
         "has_bids": r["top_user"] is not None,
         "image": bool(r["has_image"]),
+        "my_bid": r["my_bid"],
     } for r in rows]
 
 
@@ -277,46 +301,33 @@ def bid(b: Bid, x_init_data: str = Header()):
 
 
 def place_bid(b: Bid, uid: int):
+    """Hamma istagancha stavka qo'ya oladi. Eng yuqori stavka yetakchi bo'ladi,
+    har kim o'zining eng katta stavkasini auksion tugaguncha band qiladi."""
     if b.amount <= 0:
         raise HTTPException(400, "Miqdor noto'g'ri")
     with db() as c:
-        a = c.execute("SELECT * FROM auctions WHERE id=%s FOR UPDATE",
-                      (b.auction_id,)).fetchone()
+        a = c.execute("SELECT id, status, ends_at, start_price, top_bid FROM auctions "
+                      "WHERE id=%s FOR UPDATE", (b.auction_id,)).fetchone()
         if not a or a["status"] != "active" or a["ends_at"] <= time.time():
             raise HTTPException(400, "Auksion tugagan")
-        min_bid = a["start_price"] if a["top_user"] is None else a["top_bid"] + 1
-        if b.amount < min_bid:
-            raise HTTPException(400, f"Kamida {min_bid} coin")
-        if FRIENDS_MODE:
-            # Do'stlar rejimi: pul aralashmaydi, har kim o'zining eng katta stavkasini sarflaydi
-            prev = c.execute("SELECT COALESCE(MAX(amount),0) AS m FROM bids "
-                             "WHERE auction_id=%s AND user_id=%s", (a["id"], uid)).fetchone()["m"]
-            u = c.execute("SELECT balance FROM users WHERE id=%s FOR UPDATE", (uid,)).fetchone()
-            cost = b.amount - prev
-            if u["balance"] < cost:
-                raise HTTPException(400, "Coin yetarli emas")
-            c.execute("UPDATE users SET balance=balance-%s WHERE id=%s", (cost, uid))
+        if b.amount < a["start_price"]:
+            raise HTTPException(400, f"Kamida {a['start_price']} coin")
+        prev = c.execute("SELECT COALESCE(MAX(amount),0) AS m FROM bids "
+                         "WHERE auction_id=%s AND user_id=%s", (a["id"], uid)).fetchone()["m"]
+        if b.amount <= prev:
+            raise HTTPException(400, f"Siz allaqachon {prev} coin qo'ygansiz, ko'proq yozing")
+        u = c.execute("SELECT balance FROM users WHERE id=%s FOR UPDATE", (uid,)).fetchone()
+        cost = b.amount - prev
+        if u["balance"] < cost:
+            raise HTTPException(400, "Coin yetarli emas")
+        c.execute("UPDATE users SET balance=balance-%s WHERE id=%s", (cost, uid))
+        leading = b.amount > a["top_bid"]
+        if leading:  # faqat eng yuqori stavka yetakchi bo'ladi
             c.execute("UPDATE auctions SET top_bid=%s, top_user=%s WHERE id=%s",
                       (b.amount, uid, a["id"]))
-            c.execute("INSERT INTO bids(auction_id,user_id,amount,ts) VALUES(%s,%s,%s,%s)",
-                      (a["id"], uid, b.amount, int(time.time())))
-            return {"ok": True}
-        ids = sorted({uid} | ({a["top_user"]} if a["top_user"] is not None else set()))
-        rows = c.execute("SELECT id, balance FROM users WHERE id = ANY(%s) "
-                         "ORDER BY id FOR UPDATE", (ids,)).fetchall()
-        bal = next(r["balance"] for r in rows if r["id"] == uid)
-        own = a["top_bid"] if a["top_user"] == uid else 0
-        if bal + own < b.amount:
-            raise HTTPException(400, "Coin yetarli emas")
-        if a["top_user"] is not None:  # oldingi yetakchiga qaytarish
-            c.execute("UPDATE users SET balance=balance+%s WHERE id=%s",
-                      (a["top_bid"], a["top_user"]))
-        c.execute("UPDATE users SET balance=balance-%s WHERE id=%s", (b.amount, uid))
-        c.execute("UPDATE auctions SET top_bid=%s, top_user=%s WHERE id=%s",
-                  (b.amount, uid, a["id"]))
         c.execute("INSERT INTO bids(auction_id,user_id,amount,ts) VALUES(%s,%s,%s,%s)",
                   (a["id"], uid, b.amount, int(time.time())))
-    return {"ok": True}
+    return {"ok": True, "leading": leading}
 
 
 MOVES = {"rock": "scissors", "scissors": "paper", "paper": "rock"}
@@ -636,6 +647,7 @@ def give(g: Give, x_init_data: str = Header()):
         c.execute("INSERT INTO users(id,name,balance) VALUES(%s,%s,%s) "
                   "ON CONFLICT(id) DO UPDATE SET balance=users.balance+%s",
                   (g.user_id, "", g.amount, g.amount))
+        log_coin(c, g.user_id, g.amount, "admin_give")
     return {"ok": True}
 
 
@@ -644,11 +656,14 @@ def take(g: Give, x_init_data: str = Header()):
     """Admin: foydalanuvchi balansidan coin ayirish (balans 0 dan pastga tushmaydi)."""
     require_admin(auth(x_init_data))
     with db() as c:
-        r = c.execute("UPDATE users SET balance=GREATEST(balance-%s,0) WHERE id=%s "
-                      "RETURNING balance", (g.amount, g.user_id)).fetchone()
-    if not r:
-        raise HTTPException(404, "Foydalanuvchi topilmadi")
-    return {"balance": r["balance"]}
+        row = c.execute("SELECT balance FROM users WHERE id=%s FOR UPDATE", (g.user_id,)).fetchone()
+        if not row:
+            raise HTTPException(404, "Foydalanuvchi topilmadi")
+        removed = min(row["balance"], max(g.amount, 0))
+        c.execute("UPDATE users SET balance=balance-%s WHERE id=%s", (removed, g.user_id))
+        if removed:
+            log_coin(c, g.user_id, -removed, "admin_take")
+    return {"balance": row["balance"] - removed}
 
 
 class Del(BaseModel):
@@ -675,15 +690,11 @@ def delete_auction(d: Del, x_init_data: str = Header()):
                       (d.id,)).fetchone()
         if not a:
             raise HTTPException(404, "E'lon topilmadi")
-        if a["status"] == "active":
-            if FRIENDS_MODE:
-                for r in c.execute("SELECT user_id, MAX(amount) AS m FROM bids "
-                                   "WHERE auction_id=%s GROUP BY user_id", (d.id,)).fetchall():
-                    c.execute("UPDATE users SET balance=balance+%s WHERE id=%s",
-                              (r["m"], r["user_id"]))
-            elif a["top_user"] is not None:
+        if a["status"] == "active":  # hamma qatnashchiga o'z stavkasi qaytariladi
+            for r in c.execute("SELECT user_id, MAX(amount) AS m FROM bids "
+                               "WHERE auction_id=%s GROUP BY user_id", (d.id,)).fetchall():
                 c.execute("UPDATE users SET balance=balance+%s WHERE id=%s",
-                          (a["top_bid"], a["top_user"]))
+                          (r["m"], r["user_id"]))
         c.execute("DELETE FROM bids WHERE auction_id=%s", (d.id,))
         c.execute("DELETE FROM auctions WHERE id=%s", (d.id,))
     return {"ok": True}
@@ -804,3 +815,25 @@ def del_task(d: Del, x_init_data: str = Header()):
     with db() as c:
         c.execute("UPDATE tasks SET active=FALSE WHERE id=%s", (d.id,))
     return {"ok": True}
+
+
+@app.get("/api/admin/stats")
+def admin_stats(x_init_data: str = Header()):
+    """Diagnostika: coinlar qancha berilgan, chiqib ketgan, qolgan va auksionlarda band."""
+    require_admin(auth(x_init_data))
+    with db() as c:
+        u = c.execute("SELECT COUNT(*) AS n, COALESCE(SUM(balance),0) AS bal FROM users").fetchone()
+        held = c.execute(
+            "SELECT COALESCE(SUM(m),0) AS h FROM (SELECT MAX(b.amount) AS m FROM bids b "
+            "JOIN auctions a ON a.id=b.auction_id WHERE a.status='active' "
+            "GROUP BY b.auction_id, b.user_id) x").fetchone()["h"]
+        kinds = c.execute("SELECT kind, SUM(amount) AS s FROM coin_log WHERE amount>0 "
+                          "GROUP BY kind").fetchall()
+        out = c.execute("SELECT COALESCE(SUM(-amount),0) AS s FROM coin_log WHERE amount<0").fetchone()["s"]
+        act = c.execute("SELECT COUNT(*) AS n FROM auctions WHERE status='active'").fetchone()["n"]
+        pend = c.execute("SELECT COUNT(*) AS n FROM topups WHERE status='pending'").fetchone()["n"]
+    issued = {r["kind"]: int(r["s"]) for r in kinds}
+    total = sum(issued.values())
+    return {"users": u["n"], "balance": int(u["bal"]), "held": int(held), "issued": issued,
+            "issued_total": total, "out": int(out), "active": act, "pending_topups": pend,
+            "gap": total - int(out) - int(u["bal"]) - int(held)}

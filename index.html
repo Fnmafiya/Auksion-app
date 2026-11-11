@@ -78,6 +78,9 @@ button.ghost{background:var(--card2);color:var(--ink);box-shadow:none;border:1px
 .seg{display:flex;gap:4px;background:var(--card2);padding:4px;border-radius:14px;margin-bottom:10px}
 .seg button{flex:1;padding:9px 0;font-size:13px;background:transparent;color:var(--mute);box-shadow:none;border-radius:11px}
 .seg button.on{background:var(--g);color:#231700}
+.sc{padding:14px;margin:0}
+.sc b{display:block;font-size:22px;color:var(--gold)}
+.sc span{font-size:12px;color:var(--mute)}
 </style>
 </head>
 <body>
@@ -163,6 +166,11 @@ button.ghost{background:var(--card2);color:var(--ink);box-shadow:none;border:1px
 <main id="adminview" hidden>
   <button class="back" onclick="show('prof')">← Profil</button>
   <div class="title" style="margin-bottom:10px">Admin paneli</div>
+  <div class="title" style="margin:6px 0 8px;font-size:15px">Diagnostika</div>
+  <div id="adm-stats" class="grid"></div>
+  <div id="adm-kinds" style="margin:10px 0 4px"></div>
+  <div class="state" style="font-size:12px">Tushum va chiqim yozuvi shu yangilanishdan boshlab yuritiladi. Undan oldingi coinlar "Hisobga olinmagan farq" da ko'rinadi.</div>
+  <button class="ghost" onclick="loadStats()" style="width:100%;margin-bottom:6px">Yangilash</button>
   <div class="adm">
     <input id="a-title" placeholder="Auksion nomi">
     <input id="a-price" type="number" inputmode="numeric" placeholder="Boshlang'ich narx (coin)">
@@ -231,15 +239,18 @@ function render() {
   if (!items.length) { box.innerHTML = '<div class="empty">Hozircha faol auksion yo\'q</div>'; return; }
   box.innerHTML = items.map(a => {
     const next = a.has_bids ? a.price + 1 : a.price;
-    const note = friends ? '<div class="state">Do\'stlar rejimi: stavkalar qaytarilmaydi</div>' : "";
+    const note = '<div class="state">' + (friends
+      ? "Do'stlar rejimi: stavkalar qaytarilmaydi. Istagancha qo'ying, eng yuqori stavka yutadi."
+      : "Istagancha qo'ying: eng yuqori stavka yutadi, qolganlarning coini qaytariladi.") + "</div>";
+    const mine = a.my_bid > 0 ? `<div class="state">Sizning stavkangiz: <b>${a.my_bid}</b> coin</div>` : "";
     const state = a.is_top ? '<div class="state win">Siz yetakchisiz</div>'
-      : '<div class="state">' + (a.has_bids ? "Stavka qo'yilgan" : "Hali stavka yo'q") + "</div>";
+      : '<div class="state">' + (a.has_bids ? "Yetakchi stavka: " + a.price + " coin" : "Hali stavka yo'q") + "</div>";
     return `<div class="card">
       ${a.image ? `<img class="pic" src="/api/auction/${a.id}/image" alt="">` : ""}
       <div class="top"><div class="title">${esc(a.title)}</div><div class="time" data-end="${a.ends_at}"></div></div>
-      <div class="price"><i class="coin"></i>${a.price}<span>coin</span></div>${state}${note}
+      <div class="price"><i class="coin"></i>${a.price}<span>coin</span></div>${state}${mine}${note}
       <div class="row">
-        <input type="number" inputmode="numeric" data-amt="${a.id}" value="${keep[a.id] || next}" min="${next}">
+        <input type="number" inputmode="numeric" data-amt="${a.id}" value="${keep[a.id] || next}" min="1">
         <button onclick="bid(${a.id}, this)">Stavka qo'yish</button>
       </div></div>`;
   }).join("");
@@ -284,9 +295,9 @@ async function bid(id, btn) {
   if (!amount) return toast("Miqdorni kiriting");
   btn.disabled = true;
   try {
-    await api("/api/bid", {auction_id: id, amount});
+    const r = await api("/api/bid", {auction_id: id, amount});
     tg.HapticFeedback && tg.HapticFeedback.notificationOccurred("success");
-    toast("Stavka qabul qilindi");
+    toast(r.leading ? "Stavka qabul qilindi, siz yetakchisiz" : "Stavka qabul qilindi, lekin yetakchi stavka yuqoriroq");
     document.querySelectorAll("[data-amt]").forEach(i => i.value = "");
     await load();
   } catch (e) { toast(e.message); btn.disabled = false; }
@@ -367,6 +378,21 @@ function shareRef() {
 function ask(msg, yes) {
   if (tg.showConfirm) tg.showConfirm(msg, ok => { if (ok) yes(); });
   else if (confirm(msg)) yes();
+}
+const KIND = {topup: "To'ldirish", task: "Vazifalar", referral: "Takliflar",
+  welcome: "Xush kelibsiz bonusi", admin_give: "Admin bergan"};
+async function loadStats() {
+  try {
+    const s = await api("/api/admin/stats");
+    const card = (n, l) => `<div class="card sc"><b>${n}</b><span>${l}</span></div>`;
+    document.getElementById("adm-stats").innerHTML =
+      card(s.issued_total, "Jami berilgan coin") + card(s.out, "O'yindan chiqib ketgan") +
+      card(s.balance, "Foydalanuvchilarda qolgan") + card(s.held, "Auksionlarga qo'yilgan") +
+      card(s.users, "Foydalanuvchilar") + card(s.active, "Faol auksionlar") +
+      card(s.pending_topups, "Kutilayotgan to'ldirish") + card(s.gap, "Hisobga olinmagan farq");
+    document.getElementById("adm-kinds").innerHTML = Object.keys(s.issued).map(k =>
+      `<div class="state" style="margin:0 0 2px">${KIND[k] || k}: <b>${s.issued[k]}</b></div>`).join("");
+  } catch (e) { toast(e.message); }
 }
 async function loadAdminList() {
   try {
@@ -493,7 +519,7 @@ function show(t) {
   if (t === "ref") loadRef();
   if (t === "task") loadTasks();
   if (t === "rate") loadRate();
-  if (t === "adm") { loadAdminList(); loadAdminTasks(); }
+  if (t === "adm") { loadStats(); loadAdminList(); loadAdminTasks(); }
 }
 
 async function reqTopup(btn) {
