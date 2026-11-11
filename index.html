@@ -6,79 +6,96 @@
 <title>Auksion</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
-:root{color-scheme:dark;--bg:#0e1726;--card:#17233a;--ink:#f2f5fa;--mute:#8fa0b8;--line:#263650;--acc:#f5b400;--gold:#f5b400;--ok:#3ddc97;--bad:#ff6b6b}
-*{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;padding:0 14px calc(96px + env(safe-area-inset-bottom,0px))}
-header{position:sticky;top:0;background:var(--bg);padding:14px 0 10px;display:flex;justify-content:space-between;align-items:baseline;z-index:5}
-h1{font-size:22px;margin:0}
-.bal{font-size:18px;font-weight:700;color:var(--gold)}
-.bal small{font-weight:500;color:var(--mute);margin-right:4px}
-.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:12px}
-.top{display:flex;justify-content:space-between;gap:10px}
+:root{color-scheme:dark;--bg:#0a1020;--bg2:#101a33;--card:rgba(255,255,255,.055);--card2:rgba(255,255,255,.09);--ink:#f3f6fc;--mute:#92a3bf;--line:rgba(255,255,255,.1);--gold:#ffc83d;--ok:#3ddc97;--bad:#ff6b6b;--g:linear-gradient(135deg,#ffd45e,#f0a500)}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;min-height:100vh;color:var(--ink);font:16px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:radial-gradient(120% 55% at 50% -8%,#1f3366 0,transparent 62%),var(--bg);background-attachment:fixed;padding:0 14px calc(110px + env(safe-area-inset-bottom,0px))}
+header{position:sticky;top:0;z-index:5;display:flex;justify-content:space-between;align-items:center;padding:14px 0 12px;background:linear-gradient(var(--bg) 65%,transparent)}
+h1{display:flex;align-items:center;gap:8px;font-size:21px;margin:0}
+h1 svg,.hammer svg{stroke:var(--gold);fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+h1 svg{width:26px;height:26px}
+.bal{display:flex;align-items:center;gap:6px;padding:7px 13px;border-radius:999px;background:var(--card2);border:1px solid var(--line);font-weight:800;color:var(--gold);font-size:15px}
+.coin{display:inline-block;width:1em;height:1em;border-radius:50%;background:radial-gradient(circle at 30% 30%,#fff1b8,#f0a500 70%);box-shadow:inset 0 0 0 2px rgba(255,255,255,.3);vertical-align:-2px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:20px;padding:16px;margin-bottom:14px;box-shadow:0 8px 24px rgba(0,0,0,.25)}
+.top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
 .title{font-weight:700;font-size:18px}
-.time{font-variant-numeric:tabular-nums;color:var(--mute);white-space:nowrap}
-.time.hot{color:var(--bad);font-weight:700}
-.price{font-size:26px;font-weight:800;margin:8px 0 2px;color:var(--gold)}
-.price span{font-size:14px;font-weight:500;color:var(--mute)}
-.state{font-size:14px;margin-bottom:10px;color:var(--mute)}
+.time{padding:4px 10px;border-radius:999px;background:var(--card2);font-size:13px;font-variant-numeric:tabular-nums;color:var(--mute);white-space:nowrap}
+.time.hot{background:rgba(255,107,107,.16);color:var(--bad);font-weight:700}
+.price{display:flex;align-items:center;gap:7px;font-size:30px;font-weight:800;margin:10px 0 2px;color:var(--gold)}
+.price span{font-size:14px;font-weight:600;color:var(--mute)}
+.state{font-size:14px;color:var(--mute);margin-bottom:10px}
 .state.win{color:var(--ok);font-weight:700}
-.row{display:flex;gap:8px}
-input{flex:1;min-width:0;font:inherit;padding:11px 12px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink)}
-input:focus-visible,button:focus-visible{outline:2px solid var(--acc);outline-offset:1px}
-button{font:inherit;font-weight:700;padding:11px 16px;border:0;border-radius:10px;background:var(--acc);color:#1a1300;cursor:pointer}
+.row{display:flex;gap:8px;align-items:center}
+input,select{flex:1;min-width:0;font:inherit;padding:13px 14px;border:1px solid var(--line);border-radius:14px;background:rgba(0,0,0,.25);color:var(--ink)}
+input:focus-visible,select:focus-visible,button:focus-visible{outline:2px solid var(--gold);outline-offset:1px}
+button{font:inherit;font-weight:700;padding:13px 18px;border:0;border-radius:14px;background:var(--g);color:#231700;cursor:pointer;box-shadow:0 6px 16px rgba(240,165,0,.28);transition:transform .12s}
+button:active{transform:scale(.97)}
 button:disabled{opacity:.5}
-.empty{text-align:center;color:var(--mute);padding:40px 10px}
-details{margin-top:18px}
-summary{font-weight:700;cursor:pointer;padding:8px 0}
+button.ghost{background:var(--card2);color:var(--ink);box-shadow:none;border:1px solid var(--line)}
+.empty{text-align:center;color:var(--mute);padding:44px 10px}
+.pic{display:block;width:100%;max-height:210px;object-fit:cover;border-radius:14px;margin-bottom:12px}
 .adm{display:grid;gap:8px;margin-bottom:14px}
-.tabs{position:fixed;left:0;right:0;bottom:0;z-index:10;display:flex;background:var(--card);border-top:1px solid var(--line);padding:6px 6px calc(6px + env(safe-area-inset-bottom,0px))}
-.tab{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;font-size:11px;font-weight:600;padding:6px 0;background:none;color:var(--mute);border:0;border-radius:12px}
-.tab span{font-size:22px;line-height:1}
-.tab[hidden]{display:none}
-.pic{display:block;width:100%;max-height:210px;object-fit:cover;border-radius:10px;margin-bottom:10px}
-.tab.on{color:var(--gold);background:rgba(245,180,0,.12)}
-#splash{position:fixed;inset:0;z-index:20;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:24px;background:radial-gradient(circle at 50% 30%,#22345a,#0e1726 70%);transition:opacity .4s}
-#splash.off{opacity:0;pointer-events:none}
-.hammer{font-size:76px;animation:bob 1.6s ease-in-out infinite}
-@keyframes bob{50%{transform:rotate(-18deg) translateY(-6px)}}
-#splash h2{font-size:34px;line-height:1.15;margin:16px 0 10px;color:var(--gold)}
-#splash p{color:var(--mute);margin:0 0 30px;max-width:280px}
-#splash button{padding:14px 44px;font-size:18px;border-radius:14px}
-@media (prefers-reduced-motion:reduce){.hammer{animation:none}}
-.ava{width:72px;height:72px;border-radius:50%;margin:0 auto 8px;display:flex;align-items:center;justify-content:center;font-size:30px;font-weight:800;background:var(--acc);color:#1a1300}
-.ava.sm{width:36px;height:36px;font-size:16px;margin:0;flex:none}
-.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-.pb{display:flex;flex-direction:column;align-items:center;gap:4px;padding:16px 8px;background:var(--card);color:var(--ink);border:1px solid var(--line)}
-.pb span{font-size:28px}
+.tabs{position:fixed;left:12px;right:12px;bottom:calc(10px + env(safe-area-inset-bottom,0px));z-index:10;display:flex;align-items:flex-end;justify-content:space-around;padding:8px 6px;border-radius:28px;background:rgba(16,26,51,.9);backdrop-filter:blur(14px);border:1px solid var(--line);box-shadow:0 10px 30px rgba(0,0,0,.5)}
+.tab{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 0;background:none;box-shadow:none;border-radius:14px;color:var(--mute);font-size:11px;font-weight:600}
+.tab svg,.pb svg,.ic svg{fill:none;stroke:currentColor;stroke-linecap:round;stroke-linejoin:round}
+.tab svg{width:24px;height:24px;stroke-width:1.9}
+.tab.on{color:var(--gold)}
+#t-act{flex:none;width:70px;height:70px;margin-top:-32px;border-radius:50%;justify-content:center;background:var(--g);color:#231700;box-shadow:0 8px 22px rgba(240,165,0,.45);border:4px solid var(--bg2)}
+#t-act svg{width:30px;height:30px}
+#t-act.on{box-shadow:0 0 0 3px rgba(255,200,61,.35),0 8px 22px rgba(240,165,0,.5)}
+.ava{width:76px;height:76px;border-radius:50%;margin:0 auto 8px;display:flex;align-items:center;justify-content:center;font-size:32px;font-weight:800;background:var(--g);color:#231700;box-shadow:0 8px 20px rgba(240,165,0,.3)}
+.ava.sm{width:38px;height:38px;font-size:16px;margin:0;flex:none;box-shadow:none}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.pb{display:flex;flex-direction:column;align-items:center;gap:8px;padding:20px 8px;background:var(--card);color:var(--ink);border:1px solid var(--line);box-shadow:none;border-radius:20px}
+.pb svg{width:30px;height:30px;stroke:var(--gold);stroke-width:1.8}
 .pb[hidden]{display:none}
-.back{background:none;color:var(--mute);padding:10px 0 4px}
-.ru{display:flex;align-items:center;gap:10px;padding:10px 12px}
+.back{background:none;box-shadow:none;color:var(--mute);padding:10px 0 4px}
+.ru{display:flex;align-items:center;gap:10px;padding:10px 12px;margin-bottom:10px}
 .un{flex:1;font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-#t-act span{font-size:30px}
-#toast{position:fixed;left:14px;right:14px;bottom:calc(88px + env(safe-area-inset-bottom,0px));background:var(--ink);color:#0e1726;padding:12px 14px;border-radius:10px;opacity:0;pointer-events:none;transition:opacity .2s}
+.rk{flex:none;width:30px;height:30px;border-radius:50%;display:grid;place-items:center;font-weight:800;font-size:14px;background:var(--card2);color:var(--mute)}
+.rk.r1{background:var(--g);color:#231700}
+.rk.r2{background:linear-gradient(135deg,#e7ecf5,#aab5c7);color:#1d2433}
+.rk.r3{background:linear-gradient(135deg,#f0b27a,#c27a3d);color:#2a1608}
+.rw{display:inline-flex;align-items:center;gap:5px;font-weight:800;color:var(--gold);font-size:14px}
+.tk{display:flex;gap:12px;align-items:center}
+.tk .body{flex:1;min-width:0}
+.ic{flex:none;width:46px;height:46px;border-radius:15px;display:grid;place-items:center;background:rgba(255,200,61,.12);color:var(--gold)}
+.ic svg{width:22px;height:22px;stroke-width:2}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:9px 14px;border-radius:999px;font-size:13px;font-weight:700}
+.chip.ok{background:rgba(61,220,151,.15);color:var(--ok)}
+.chip svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:3;stroke-linecap:round;stroke-linejoin:round}
+#splash{position:fixed;inset:0;z-index:20;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:24px;background:radial-gradient(circle at 50% 30%,#24396e,#0a1020 70%);transition:opacity .4s}
+#splash.off{opacity:0;pointer-events:none}
+.hammer{animation:bob 1.6s ease-in-out infinite}
+.hammer svg{width:92px;height:92px}
+@keyframes bob{50%{transform:rotate(-14deg) translateY(-6px)}}
+#splash h2{font-size:34px;line-height:1.15;margin:16px 0 10px;background:var(--g);-webkit-background-clip:text;background-clip:text;color:transparent}
+#splash p{color:var(--mute);margin:0 0 30px;max-width:280px}
+#splash button{padding:15px 46px;font-size:18px;border-radius:16px}
+@media (prefers-reduced-motion:reduce){.hammer{animation:none}}
+#toast{position:fixed;left:14px;right:14px;bottom:calc(112px + env(safe-area-inset-bottom,0px));background:var(--ink);color:#0a1020;padding:13px 16px;border-radius:14px;font-weight:600;opacity:0;pointer-events:none;transition:opacity .2s;z-index:30}
 #toast.on{opacity:1}
 </style>
 </head>
 <body>
 <div id="splash">
-  <div class="hammer">🔨</div>
+  <div class="hammer"><svg viewBox="0 0 24 24"><path d="M13.5 4.5l6 6-3 3-6-6z"/><path d="M11 9L3.5 16.5l4 4L15 13"/><path d="M3 21h9"/></svg></div>
   <h2>Auksionga<br>xush kelibsiz!</h2>
   <p id="hello">Eng yaxshi narxda g'olib bo'ling</p>
   <button onclick="closeSplash()">Boshlash</button>
 </div>
-<header><h1>🔨 Auksion</h1><div class="bal"><small>Balans</small><span id="bal">0</span> coin</div></header>
+<header><h1><svg viewBox="0 0 24 24"><path d="M13.5 4.5l6 6-3 3-6-6z"/><path d="M11 9L3.5 16.5l4 4L15 13"/><path d="M3 21h9"/></svg>Auksion</h1><div class="bal"><i class="coin"></i><span id="bal">0</span></div></header>
 <div class="tabs">
-  <button class="tab" id="t-his" onclick="show('his')"><span>🏁</span>Tugagan</button>
-  <button class="tab" id="t-task" onclick="show('task')"><span>✅</span>Vazifalar</button>
-  <button class="tab on" id="t-act" onclick="show('act')"><span>🔨</span>Auksion</button>
-  <button class="tab" id="t-game" onclick="show('game')"><span>🎮</span>O'yin</button>
-  <button class="tab" id="t-prof" onclick="show('prof')"><span>👤</span>Profil</button>
+  <button class="tab" id="t-his" onclick="show('his')"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Tugagan</button>
+  <button class="tab" id="t-task" onclick="show('task')"><svg viewBox="0 0 24 24"><rect x="5" y="4" width="14" height="17" rx="3"/><path d="M9 3h6v3H9z"/><path d="M9 13l2 2 4-4"/></svg>Vazifalar</button>
+  <button class="tab on" id="t-act" onclick="show('act')"><svg viewBox="0 0 24 24"><path d="M13.5 4.5l6 6-3 3-6-6z"/><path d="M11 9L3.5 16.5l4 4L15 13"/><path d="M3 21h9"/></svg>Auksion</button>
+  <button class="tab" id="t-game" onclick="show('game')"><svg viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="11" rx="5"/><path d="M7 10v5M4.5 12.5h5"/><circle cx="16" cy="11.5" r=".8"/><circle cx="18.5" cy="14" r=".8"/></svg>O'yin</button>
+  <button class="tab" id="t-prof" onclick="show('prof')"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>Profil</button>
 </div>
 <main id="list"><div class="empty">Yuklanmoqda...</div></main>
 <main id="hist" hidden></main>
 <main id="gameview" hidden>
   <div class="card" style="text-align:center;padding:32px 16px">
-    <div style="font-size:56px">🎮</div>
+    <div class="ic" style="width:72px;height:72px;margin:0 auto;border-radius:22px"><svg viewBox="0 0 24 24" style="width:38px;height:38px"><rect x="2" y="7" width="20" height="11" rx="5"/><path d="M7 10v5M4.5 12.5h5"/><circle cx="16" cy="11.5" r=".8"/><circle cx="18.5" cy="14" r=".8"/></svg></div>
     <div class="title" style="margin-top:8px">O'yinlar bo'limi</div>
     <div class="state">Tez orada shu yerda o'yinlar paydo bo'ladi.</div>
   </div>
@@ -103,21 +120,21 @@ summary{font-weight:700;cursor:pointer;padding:8px 0}
     <div class="state">ID: <span id="pf-id"></span> · Yutgan auksionlar: <b id="pf-wins">0</b></div>
   </div>
   <div class="grid">
-    <button class="pb" id="pb-top" onclick="show('top')"><span>💰</span>To'ldirish</button>
-    <button class="pb" onclick="show('ref')"><span>🎁</span>Do'st chaqirish</button>
-    <button class="pb" onclick="show('rate')"><span>🏆</span>Reyting</button>
-    <button class="pb" id="pb-adm" onclick="show('adm')" hidden><span>🛠</span>Admin</button>
+    <button class="pb" id="pb-top" onclick="show('top')"><svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="14" rx="3"/><path d="M3 10h18M16 15h2"/></svg>To'ldirish</button>
+    <button class="pb" onclick="show('ref')"><svg viewBox="0 0 24 24"><rect x="3" y="9" width="18" height="12" rx="2"/><path d="M12 9v12M3 14h18"/><path d="M12 9c-3 0-5-4-2-4s2 4 2 4zM12 9c3 0 5-4 2-4s-2 4-2 4z"/></svg>Do'st chaqirish</button>
+    <button class="pb" onclick="show('rate')"><svg viewBox="0 0 24 24"><path d="M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M7 6H4v1a3 3 0 0 0 3 3M17 6h3v1a3 3 0 0 1-3 3M12 14v4M8 21h8"/></svg>Reyting</button>
+    <button class="pb" id="pb-adm" onclick="show('adm')" hidden><svg viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="M9 12l2 2 4-4"/></svg>Admin</button>
   </div>
 </main>
 <main id="taskview" hidden>
-  <div class="title" style="margin:14px 0 6px">✅ Vazifalar</div>
-  <div class="state" style="margin-bottom:10px">Vazifani bajarib, "Bajardim" ni bosing. Admin tasdiqlagach mukofot coin hisobingizga tushadi.</div>
+  <div class="title" style="margin:14px 0 6px">Vazifalar</div>
+  <div class="state" style="margin-bottom:12px">Kanal yoki guruhga qo'shiling va "Tekshirish" ni bosing. Bot o'zi tekshiradi, mukofot darhol hisobingizga tushadi.</div>
   <div id="task-list"></div>
 </main>
 <main id="rateview" hidden>
   <button class="back" onclick="show('prof')">← Profil</button>
-  <div class="title" style="margin:4px 0 10px">🏆 Reyting</div>
-  <div class="state" style="margin-bottom:10px">Kim ko'proq auksion yutgan: 🏆 g'alabalar, 🎁 taklif qilingan do'stlar.</div>
+  <div class="title" style="margin:4px 0 10px">Reyting</div>
+  <div class="state" style="margin-bottom:12px">Eng ko'p coini borlar tepada.</div>
   <div id="rate-list"></div>
 </main>
 <main id="topup" hidden>
@@ -158,7 +175,7 @@ summary{font-weight:700;cursor:pointer;padding:8px 0}
     <input id="tk-title" placeholder="Vazifa nomi">
     <input id="tk-descr" placeholder="Qisqa tavsif (ixtiyoriy)">
     <input id="tk-reward" type="number" inputmode="numeric" placeholder="Mukofot (coin)">
-    <input id="tk-url" placeholder="Havola https://... (ixtiyoriy)">
+    <input id="tk-chat" placeholder="Kanal/guruh: @username yoki t.me/username">
     <button onclick="addTask()">Vazifa qo'shish</button>
   </div>
   <div id="adm-tasks"></div>
@@ -210,7 +227,7 @@ function render() {
     return `<div class="card">
       ${a.image ? `<img class="pic" src="/api/auction/${a.id}/image" alt="">` : ""}
       <div class="top"><div class="title">${esc(a.title)}</div><div class="time" data-end="${a.ends_at}"></div></div>
-      <div class="price">${a.price} <span>coin</span></div>${state}${note}
+      <div class="price"><i class="coin"></i>${a.price}<span>coin</span></div>${state}${note}
       <div class="row">
         <input type="number" inputmode="numeric" data-amt="${a.id}" value="${keep[a.id] || next}" min="${next}">
         <button onclick="bid(${a.id}, this)">Stavka qo'yish</button>
@@ -364,11 +381,11 @@ function clearEnded() {
 async function loadRate() {
   try {
     const list = await api("/api/rating");
-    const medal = ["🥇", "🥈", "🥉"];
     document.getElementById("rate-list").innerHTML = list.map((u, i) =>
-      `<div class="card ru"><div class="ava sm">${esc((u.name || "?").charAt(0).toUpperCase())}</div>
-       <div class="un">${medal[i] || (i + 1) + "."} ${esc(u.name)}${u.me ? " (siz)" : ""}</div>
-       <div class="state" style="margin:0">🏆 ${u.wins} · 🎁 ${u.refs}</div></div>`).join("")
+      `<div class="card ru"><div class="rk ${i < 3 ? "r" + (i + 1) : ""}">${i + 1}</div>
+       <div class="ava sm">${esc((u.name || "?").charAt(0).toUpperCase())}</div>
+       <div class="un">${esc(u.name)}${u.me ? " (siz)" : ""}</div>
+       <div class="rw"><i class="coin"></i>${u.coins}</div></div>`).join("")
       || `<div class="empty">Hali foydalanuvchi yo'q</div>`;
   } catch (e) { toast(e.message); }
 }
@@ -376,22 +393,25 @@ async function loadRate() {
 function openUrl(u) {
   if (/^https:\/\/t\.me\//.test(u)) tg.openTelegramLink(u); else tg.openLink(u);
 }
+const ICON_CHECK = '<svg viewBox="0 0 24 24"><path d="M5 12l5 5 9-10"/></svg>';
 async function loadTasks() {
   try {
     const list = await api("/api/tasks");
-    const st = {pending: "Tekshirilmoqda...", approved: "Bajarilgan ✓", rejected: "Rad etildi"};
     document.getElementById("task-list").innerHTML = list.length ? list.map(t => `
-      <div class="card"><div class="top"><div class="title">${esc(t.title)}</div><div class="time" style="color:var(--gold)">+${t.reward} coin</div></div>
-      ${t.descr ? `<div class="state">${esc(t.descr)}</div>` : ""}
-      <div class="row">
-        ${t.url ? `<button data-u="${esc(t.url)}" onclick="openUrl(this.dataset.u)" style="background:var(--bg);color:var(--ink);border:1px solid var(--line)">Ochish</button>` : ""}
-        ${t.status ? `<div class="state" style="margin:0;align-self:center">${st[t.status]}</div>` : `<button onclick="claimTask(${t.id}, this)">Bajardim</button>`}
-      </div></div>`).join("") : `<div class="empty">Hozircha vazifa yo'q</div>`;
+      <div class="card"><div class="tk"><div class="ic"><svg viewBox="0 0 24 24"><path d="M21 4L3 11l7 3 3 7z"/></svg></div>
+        <div class="body"><div class="title">${esc(t.title)}</div>
+          ${t.descr ? `<div class="state" style="margin:2px 0 0">${esc(t.descr)}</div>` : ""}
+          <div class="rw" style="margin-top:4px">+${t.reward} <i class="coin"></i></div></div></div>
+        <div class="row" style="margin-top:12px">
+          ${t.status === "approved" ? `<div class="chip ok">${ICON_CHECK}Bajarilgan</div>` : `
+          <button class="ghost" data-u="${esc(t.url || "")}" onclick="openUrl(this.dataset.u)">Ochish</button>
+          <button onclick="checkTask(${t.id}, this)">Tekshirish</button>`}
+        </div></div>`).join("") : `<div class="empty">Hozircha vazifa yo'q</div>`;
   } catch (e) { toast(e.message); }
 }
-async function claimTask(id, btn) {
+async function checkTask(id, btn) {
   btn.disabled = true;
-  try { await api("/api/tasks/claim", {id}); toast("So'rov adminga yuborildi"); loadTasks(); }
+  try { const r = await api("/api/tasks/check", {id}); toast("+" + r.reward + " coin berildi"); load(); loadTasks(); }
   catch (e) { toast(e.message); btn.disabled = false; }
 }
 
@@ -401,7 +421,7 @@ async function addTask() {
       title: document.getElementById("tk-title").value,
       descr: document.getElementById("tk-descr").value,
       reward: parseInt(document.getElementById("tk-reward").value, 10),
-      url: document.getElementById("tk-url").value
+      chat: document.getElementById("tk-chat").value
     });
     toast("Vazifa qo'shildi"); loadAdminTasks();
   } catch (e) { toast(e.message); }

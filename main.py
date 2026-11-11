@@ -1,4 +1,4 @@
-import os, json, hmac, hashlib, time, asyncio, base64
+import os, re, json, hmac, hashlib, time, asyncio, base64
 import urllib.request
 from urllib.parse import parse_qsl, urlencode
 from contextlib import asynccontextmanager
@@ -43,6 +43,7 @@ def init_db():
         c.execute("""CREATE TABLE IF NOT EXISTS task_claims(
             id BIGSERIAL PRIMARY KEY, task_id BIGINT, user_id BIGINT,
             status TEXT DEFAULT 'pending', ts BIGINT, UNIQUE(task_id, user_id))""")
+        c.execute("ALTER TABLE tasks ADD COLUMN IF NOT EXISTS chat TEXT")
         c.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS ref_paid BOOLEAN DEFAULT FALSE")
         c.execute("""CREATE TABLE IF NOT EXISTS topups(
             id BIGSERIAL PRIMARY KEY, user_id BIGINT, coins BIGINT,
@@ -648,12 +649,18 @@ def clear_ended(x_init_data: str = Header()):
 def rating(x_init_data: str = Header()):
     uid = auth(x_init_data)
     with db() as c:
-        rows = c.execute(
-            "SELECT u.id, u.name, COALESCE(u.wins,0) AS wins, "
-            "(SELECT COUNT(*) FROM users r WHERE r.referrer=u.id AND r.ref_paid) AS refs "
-            "FROM users u ORDER BY wins DESC, refs DESC, u.id LIMIT 100").fetchall()
-    return [{"name": r["name"] or "Foydalanuvchi", "wins": r["wins"],
-             "refs": r["refs"], "me": r["id"] == uid} for r in rows]
+        rows = c.execute("SELECT id, name, balance FROM users "
+                         "ORDER BY balance DESC, id LIMIT 100").fetchall()
+    return [{"name": r["name"] or "Foydalanuvchi", "coins": r["balance"],
+             "me": r["id"] == uid} for r in rows]
+
+
+def norm_chat(v):
+    v = (v or "").strip()
+    m = re.match(r"^(?:https?://)?t\.me/([A-Za-z0-9_]{4,})/?$", v)
+    if m:
+        return "@" + m.group(1)
+    return v if re.match(r"^@[A-Za-z0-9_]{4,}$", v) else None
 
 
 @app.get("/api/tasks")
@@ -661,56 +668,69 @@ def tasks(x_init_data: str = Header()):
     uid = auth(x_init_data)
     with db() as c:
         rows = c.execute(
-            "SELECT t.id, t.title, t.descr, t.reward, t.url, k.status FROM tasks t "
+            "SELECT t.id, t.title, t.descr, t.reward, t.chat, k.status FROM tasks t "
             "LEFT JOIN task_claims k ON k.task_id=t.id AND k.user_id=%s "
             "WHERE t.active ORDER BY t.id DESC", (uid,)).fetchall()
-    return [dict(r) for r in rows]
+    return [{"id": r["id"], "title": r["title"], "descr": r["descr"], "reward": r["reward"],
+             "status": r["status"],
+             "url": ("https://t.me/" + r["chat"][1:]) if r["chat"] else ""} for r in rows]
 
 
 class Claim(BaseModel):
     id: int
 
 
-@app.post("/api/tasks/claim")
-def claim_task(cl: Claim, x_init_data: str = Header()):
+@app.post("/api/tasks/check")
+def check_task(cl: Claim, x_init_data: str = Header()):
     uid = auth(x_init_data)
     with db() as c:
-        t = c.execute("SELECT id, title, reward FROM tasks WHERE id=%s AND active",
+        t = c.execute("SELECT id, reward, chat FROM tasks WHERE id=%s AND active",
                       (cl.id,)).fetchone()
-        if not t:
-            raise HTTPException(404, "Vazifa topilmadi")
-        k = c.execute("INSERT INTO task_claims(task_id,user_id,ts) VALUES(%s,%s,%s) "
-                      "ON CONFLICT DO NOTHING RETURNING id", (t["id"], uid, int(time.time()))).fetchone()
-        u = c.execute("SELECT name FROM users WHERE id=%s", (uid,)).fetchone()
+        done = c.execute("SELECT 1 FROM task_claims WHERE task_id=%s AND user_id=%s "
+                         "AND status='approved'", (cl.id, uid)).fetchone()
+    if not t:
+        raise HTTPException(404, "Vazifa topilmadi")
+    if done:
+        raise HTTPException(400, "Bu vazifa allaqachon bajarilgan")
+    if not t["chat"]:
+        raise HTTPException(400, "Bu vazifa uchun tekshiruv sozlanmagan")
+    r = tg("getChatMember", chat_id=t["chat"], user_id=uid)
+    if not r or not r.get("ok"):
+        raise HTTPException(400, "Tekshirib bo'lmadi: bot kanalda admin emas yoki nomi noto'g'ri")
+    m = r["result"]
+    if not (m["status"] in ("creator", "administrator", "member")
+            or (m["status"] == "restricted" and m.get("is_member"))):
+        raise HTTPException(400, "Siz hali obuna bo'lmagansiz")
+    with db() as c:
+        k = c.execute("INSERT INTO task_claims(task_id,user_id,status,ts) VALUES(%s,%s,'approved',%s) "
+                      "ON CONFLICT (task_id,user_id) DO UPDATE SET status='approved', ts=EXCLUDED.ts "
+                      "WHERE task_claims.status<>'approved' RETURNING id",
+                      (t["id"], uid, int(time.time()))).fetchone()
+        if k:
+            c.execute("UPDATE users SET balance=balance+%s WHERE id=%s", (t["reward"], uid))
     if not k:
-        raise HTTPException(400, "Bu vazifa uchun so'rov allaqachon yuborilgan")
-    kb = json.dumps({"inline_keyboard": [[
-        {"text": "Tasdiqlash", "callback_data": f"tk_ok:{k['id']}"},
-        {"text": "Rad etish", "callback_data": f"tk_no:{k['id']}"}]]})
-    for admin in ADMINS:
-        tg("sendMessage", chat_id=admin, reply_markup=kb,
-           text=f"Vazifa: {t['title']}\nFoydalanuvchi: {u['name']} (ID {uid})\nMukofot: {t['reward']} coin")
-    return {"ok": True}
+        raise HTTPException(400, "Bu vazifa allaqachon bajarilgan")
+    return {"reward": t["reward"]}
 
 
 class TaskIn(BaseModel):
     title: str
     descr: str = ""
     reward: int
-    url: str = ""
+    chat: str = ""
 
 
 @app.post("/api/admin/task")
 def new_task(t: TaskIn, x_init_data: str = Header()):
     require_admin(auth(x_init_data))
-    url = t.url.strip()
+    chat = norm_chat(t.chat)
     if not t.title.strip() or t.reward < 0 or t.reward > 1_000_000:
         raise HTTPException(400, "Ma'lumot noto'g'ri")
-    if url and not url.startswith("https://"):
-        raise HTTPException(400, "Havola https:// bilan boshlanishi kerak")
+    if not chat:
+        raise HTTPException(400, "Kanal yoki guruh @username yoki t.me/username ko'rinishida bo'lsin")
     with db() as c:
-        c.execute("INSERT INTO tasks(title,descr,reward,url) VALUES(%s,%s,%s,%s)",
-                  (t.title.strip(), t.descr.strip(), t.reward, url or None))
+        c.execute("INSERT INTO tasks(title,descr,reward,chat) VALUES(%s,%s,%s,%s)",
+                  (t.title.strip(), t.descr.strip(), t.reward, chat))
     return {"ok": True}
 
 
