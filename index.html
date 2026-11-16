@@ -95,6 +95,31 @@ button.ghost{background:var(--card2);color:var(--ink);box-shadow:none;border:1px
 .piece.king:after{content:"♛";font-size:clamp(14px,4vw,25px);color:#ffd45e;text-shadow:0 1px 3px #000}
 .game-actions{display:flex;gap:8px;flex-wrap:wrap}.game-actions button{flex:1;min-width:110px}
 .voice-state{font-size:13px;color:var(--mute);margin-top:8px}
+/* O'yinlar katalogi — mobil ilova uslubida */
+.games-intro{display:flex;align-items:center;justify-content:space-between;margin:14px 2px 12px;gap:10px}
+.games-intro .title{font-size:21px;letter-spacing:.2px}
+.game-apps{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.game-app{position:relative;overflow:hidden;min-height:176px;border-radius:22px;padding:14px;text-align:left;color:var(--ink);background:linear-gradient(145deg,#1c2d50,#111a2e 72%);border:1px solid rgba(255,255,255,.12);box-shadow:0 10px 24px #0004}
+.game-app:before{content:"";position:absolute;width:130px;height:130px;border-radius:50%;right:-42px;top:-45px;background:rgba(255,200,61,.10)}
+.game-app:disabled{opacity:1;cursor:default}
+.game-art{height:86px;display:grid;place-items:center;font-size:52px;filter:drop-shadow(0 8px 10px #0008);position:relative}
+.game-app-name{font-size:16px;font-weight:850;letter-spacing:.5px;margin-top:5px;position:relative}
+.game-app-meta{font-size:12px;color:#aebbd2;margin-top:3px;position:relative}
+.game-tag{position:absolute;right:10px;top:10px;border-radius:99px;padding:4px 8px;background:#173d35;color:#73edbd;font-size:10px;font-weight:800;z-index:1}
+.game-tag.soon{background:#3b3040;color:#e5c1ff}
+.game-app.pool{background:linear-gradient(145deg,#075b47,#102b2a 75%)}
+.game-app.checkers{background:linear-gradient(145deg,#51351e,#1c1b22 78%)}
+.game-app:active{transform:scale(.985)}
+.game-detail{margin-top:12px;background:rgba(255,255,255,.045);border:1px solid var(--line);border-radius:18px;padding:13px}
+.game-detail-head{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.help-dot{width:32px;height:32px;padding:0;border-radius:50%;font-weight:900;font-size:17px;background:var(--card2);color:var(--ink);box-shadow:none;border:1px solid var(--line)}
+.rules-overlay{position:fixed;inset:0;z-index:50;background:#000b;display:none;align-items:flex-end;justify-content:center;padding:14px}
+.rules-overlay.open{display:flex}
+.rules-sheet{width:min(100%,520px);max-height:82vh;overflow:auto;background:#121d34;border:1px solid var(--line);border-radius:24px;padding:20px;box-shadow:0 20px 70px #000b}
+.rules-sheet h3{margin:0 0 12px;font-size:20px}
+.rules-sheet li{margin:8px 0;color:#d3dced}
+.pool-preview{width:100%;height:12px;border-radius:99px;background:linear-gradient(90deg,#a66b35,#e5bb76,#a66b35);margin:10px 0}
+@media(min-width:520px){.game-app{min-height:190px}.game-art{height:100px}}
 
 </style>
 </head>
@@ -571,15 +596,23 @@ let checkerPoll = null, voicePoll = null, voicePc = null, voiceStream = null;
 let voiceLastId = 0, voiceMuted = false, voicePendingCandidates = [];
 
 function gameHomeHtml(){return `
-  <div class="game-head"><div><div class="title">♟ Shashka</div><div class="state">Raqib bilan jonli o'yin · 8×8 doska</div></div><span class="chip ok">2 o'yinchi</span></div>
-  <div class="card">
-    <div class="title">Stavkani tanlang</div>
-    <div class="state">Raqib aynan shu miqdordagi coin bilan qo'shiladi. 2 dan 1 000 000 coin gacha.</div>
-    <input id="checkers-stake" type="number" inputmode="numeric" min="2" max="1000000" value="10" style="width:100%;margin:8px 0">
-    <button id="checkers-join" style="width:100%" onclick="joinCheckers()">Raqib izlash</button>
+  <div class="games-intro"><div><div class="title">O'yinlar</div><div class="state">Raqib bilan bellashing va yuting</div></div><span class="chip ok">M-COIN</span></div>
+  <div class="game-apps">
+    <button class="game-app checkers" onclick="openCheckersApp()"><span class="game-tag">ONLINE</span><div class="game-art">♟</div><div class="game-app-name">SHASHKA</div><div class="game-app-meta">2 o'yinchi · Jonli duel</div></button>
+    <button class="game-app pool" onclick="showPoolPreview()"><span class="game-tag soon">KEYINGI O'YIN</span><div class="game-art">🎱</div><div class="game-app-name">8 BALL POOL</div><div class="game-app-meta">Professional billiard</div></button>
   </div>
-  <div class="card"><div class="title">O'yin qoidalari</div><div class="state">Majburiy urish · Dama uzoq yuradi · Navbatma-navbat yurish · Yutgan o'yinchi umumiy bankning 75 foizini oladi.</div><div class="state">Misol: 100 + 100 = 200 coin. G'olib 150 coin, platforma 50 coin oladi.</div></div>
+  <div class="game-detail" id="checkers-lobby"><div class="game-detail-head"><div><div class="title">Shashka</div><div class="state">Bir xil stavkali raqib toping va o'yinni boshlang.</div></div><button class="help-dot" aria-label="Shashka qoidalari" onclick="showCheckersRules()">?</button></div>
+    <input id="checkers-stake" type="number" inputmode="numeric" min="2" max="1000000" value="10" style="width:100%;margin:8px 0">
+    <button id="checkers-join" style="width:100%" onclick="joinCheckers()">♟ Raqib izlash</button>
+    <div class="state" style="margin:8px 0 0">Komissiya: 1% · G'olibga bankning 99% qismi</div>
+  </div>
+  <div id="pool-preview" class="game-detail" hidden><div class="game-detail-head"><div class="title">🎱 8 Ball Pool</div><span class="game-tag soon" style="position:static">TAYYORLANMOQDA</span></div><div class="state" style="margin-top:8px">Keyingi bosqichda real fizikaga asoslangan zarba, aylantirish (spin), stol va cho'ntaklar, navbat, foul qoidalari hamda onlayn raqib bilan o'yin qo'shiladi.</div></div>
+  <div id="checkers-rules" class="rules-overlay" onclick="if(event.target===this)hideCheckersRules()"><div class="rules-sheet"><div class="game-detail-head"><h3>♟ Shashka qoidalari</h3><button class="help-dot" onclick="hideCheckersRules()">×</button></div><ul><li>O'yin 8×8 doskada ikki o'yinchi o'rtasida o'tadi.</li><li>Har bir o'yinchi navbat bilan bitta dona yuradi.</li><li>Raqib donasini urish imkoniyati bo'lsa, urish majburiy.</li><li>Bir yurishda bir nechta donani ketma-ket urish mumkin.</li><li>Oxirgi qatorga yetgan dona dama bo'ladi va diagonal bo'ylab uzoq yuradi.</li><li>Raqibning donalari qolmasa yoki yurish imkoni bo'lmasa, yutqazadi.</li><li>O'yinni tark etish yoki taslim bo'lish mag'lubiyat hisoblanadi.</li></ul><div class="state">Stavka: 2–1 000 000 M-COIN. Umumiy bankdan 1% komissiya olinadi, qolgan 99% g'olibga beriladi.</div></div></div>
   `;}
+function openCheckersApp(){const input=document.getElementById('checkers-stake');if(!input){renderCheckersLobby();return;}document.getElementById('checkers-lobby')?.scrollIntoView({behavior:'smooth'});}
+function showCheckersRules(){document.getElementById('checkers-rules')?.classList.add('open');}
+function hideCheckersRules(){document.getElementById('checkers-rules')?.classList.remove('open');}
+function showPoolPreview(){const el=document.getElementById('pool-preview');if(el){el.hidden=false;el.scrollIntoView({behavior:'smooth',block:'nearest'});}}
 
 function renderGameHome(){document.getElementById('game-root').innerHTML=gameHomeHtml();}
 
@@ -622,7 +655,7 @@ function renderCheckers(){
     <div class="game-board">${cells}</div>
     <div class="state" style="text-align:center">${myTurn?'Donangizni, keyin yurish kataklarini bosing.':'Raqibning yurishi kutilmoqda...'}</div>
     <div class="game-actions"><button class="ghost" onclick="startVoice()">🎙 Mikrofon</button><button class="ghost" onclick="toggleMute()" id="voice-mute" disabled>Ovozni o'chirish</button><button class="ghost" onclick="resignCheckers()">Taslim bo'lish</button></div><div id="voice-status" class="voice-state">Ovozli aloqa ulanmagan</div>
-    <div class="state" style="margin-top:10px">Bank: ${(g.pot||g.stake*2).toLocaleString('uz-UZ')} coin · G'olib: ${g.winner_prize.toLocaleString('uz-UZ')} coin · Komissiya: 25%</div></div>`;
+    <div class="state" style="margin-top:10px">Bank: ${(g.pot||g.stake*2).toLocaleString('uz-UZ')} coin · G'olib: ${g.winner_prize.toLocaleString('uz-UZ')} coin · Komissiya: 1%</div></div>`;
 }
 
 function myTelegramId(){return Number((tg.initDataUnsafe&&tg.initDataUnsafe.user&&tg.initDataUnsafe.user.id)||0);}

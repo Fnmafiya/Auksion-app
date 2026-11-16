@@ -411,7 +411,7 @@ def place_bid(b: Bid, uid: int):
 # --- Onlayn shashka (8x8, rus qoidasi: majburiy urish, dama uzoq yuradi) ---
 CHECKERS_MIN_STAKE = 2
 CHECKERS_MAX_STAKE = 1_000_000
-CHECKERS_FEE_PERCENT = 25
+CHECKERS_FEE_PERCENT = 1
 
 
 def checkers_initial_board():
@@ -542,7 +542,7 @@ def _checkers_finish(c, g, winner):
         c.execute("UPDATE users SET balance=balance+%s, wins=COALESCE(wins,0)+1 WHERE id=%s",
                   (prize, winner))
         log_coin(c, winner, prize, "checkers_win")
-        # Platforma komissiyasi bankning 25 foizi sifatida qayd etiladi.
+        # Platforma komissiyasi bankning 1 foizi sifatida qayd etiladi.
         fee = g["stake"] * 2 - prize
         c.execute("INSERT INTO platform_ledger(game_id,amount,kind,ts) VALUES(%s,%s,%s,%s)",
                   (g["id"], fee, "checkers_commission", int(time.time())))
