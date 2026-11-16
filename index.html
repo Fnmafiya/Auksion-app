@@ -119,6 +119,16 @@ button.ghost{background:var(--card2);color:var(--ink);box-shadow:none;border:1px
 .rules-sheet h3{margin:0 0 12px;font-size:20px}
 .rules-sheet li{margin:8px 0;color:#d3dced}
 .pool-preview{width:100%;height:12px;border-radius:99px;background:linear-gradient(90deg,#a66b35,#e5bb76,#a66b35);margin:10px 0}
+.pool-table-wrap{width:100%;padding:8px;border-radius:18px;background:linear-gradient(135deg,#8d552b,#3b2114);box-shadow:0 12px 28px #0008;margin:12px 0}
+#pool-canvas{display:block;width:100%;height:auto;aspect-ratio:2/1;border-radius:12px;touch-action:none;background:#07583d}
+.pool-hud{display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap}
+.pool-clock-row{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:10px 0}.pool-clock{background:var(--panel2,rgba(255,255,255,.06));border:1px solid var(--line,rgba(255,255,255,.1));border-radius:12px;padding:9px 6px;text-align:center}.pool-clock small{display:block;font-size:9px;letter-spacing:.6px;color:var(--mute)}.pool-clock strong{display:block;font-size:20px;font-variant-numeric:tabular-nums;margin-top:3px}@media(max-width:360px){.pool-clock strong{font-size:16px}.pool-clock small{font-size:8px}}
+.pool-hud .chip{padding:7px 10px}
+.pool-help{font-size:12px;color:var(--mute);text-align:center;margin:6px 0 0}
+.pool-action{display:flex;gap:8px}.pool-action button{flex:1}
+.stake-label{display:block;color:#dce5f5;font-size:13px;font-weight:700;margin:12px 0 6px}
+.stake-input{width:100%;font-size:20px;font-weight:800;text-align:center;letter-spacing:.4px}
+.stake-submit{width:100%;margin-top:10px;padding:15px;border-radius:16px;font-size:15px}
 @media(min-width:520px){.game-app{min-height:190px}.game-art{height:100px}}
 
 </style>
@@ -599,21 +609,23 @@ function gameHomeHtml(){return `
   <div class="games-intro"><div><div class="title">O'yinlar</div><div class="state">Raqib bilan bellashing va yuting</div></div><span class="chip ok">M-COIN</span></div>
   <div class="game-apps">
     <button class="game-app checkers" onclick="openCheckersApp()"><span class="game-tag">ONLINE</span><div class="game-art">♟</div><div class="game-app-name">SHASHKA</div><div class="game-app-meta">2 o'yinchi · Jonli duel</div></button>
-    <button class="game-app pool" onclick="showPoolPreview()"><span class="game-tag soon">KEYINGI O'YIN</span><div class="game-art">🎱</div><div class="game-app-name">8 BALL POOL</div><div class="game-app-meta">Professional billiard</div></button>
+    <button class="game-app pool" onclick="openPoolApp()"><span class="game-tag">ONLINE</span><div class="game-art">🎱</div><div class="game-app-name">8 BALL POOL</div><div class="game-app-meta">2 o'yinchi · Billiard duel</div></button>
   </div>
   <div class="game-detail" id="checkers-lobby"><div class="game-detail-head"><div><div class="title">Shashka</div><div class="state">Bir xil stavkali raqib toping va o'yinni boshlang.</div></div><button class="help-dot" aria-label="Shashka qoidalari" onclick="showCheckersRules()">?</button></div>
-    <input id="checkers-stake" type="number" inputmode="numeric" min="2" max="1000000" value="10" style="width:100%;margin:8px 0">
-    <button id="checkers-join" style="width:100%" onclick="joinCheckers()">♟ Raqib izlash</button>
-    <div class="state" style="margin:8px 0 0">Komissiya: 1% · G'olibga bankning 99% qismi</div>
+    <label class="stake-label" for="checkers-stake">Stavka miqdori (M-COIN)</label>
+    <input id="checkers-stake" class="stake-input" type="number" inputmode="numeric" min="2" max="1000000" placeholder="Masalan, 100" style="margin:0">
+    <button id="checkers-join" class="stake-submit" onclick="joinCheckers()">♟ Stavkani qo'yish</button>
+    <div class="state" style="text-align:center;margin:8px 0 0">Stavka qo'yilgach, aynan shu miqdordagi raqib qidiriladi · Komissiya 10%</div>
   </div>
-  <div id="pool-preview" class="game-detail" hidden><div class="game-detail-head"><div class="title">🎱 8 Ball Pool</div><span class="game-tag soon" style="position:static">TAYYORLANMOQDA</span></div><div class="state" style="margin-top:8px">Keyingi bosqichda real fizikaga asoslangan zarba, aylantirish (spin), stol va cho'ntaklar, navbat, foul qoidalari hamda onlayn raqib bilan o'yin qo'shiladi.</div></div>
-  <div id="checkers-rules" class="rules-overlay" onclick="if(event.target===this)hideCheckersRules()"><div class="rules-sheet"><div class="game-detail-head"><h3>♟ Shashka qoidalari</h3><button class="help-dot" onclick="hideCheckersRules()">×</button></div><ul><li>O'yin 8×8 doskada ikki o'yinchi o'rtasida o'tadi.</li><li>Har bir o'yinchi navbat bilan bitta dona yuradi.</li><li>Raqib donasini urish imkoniyati bo'lsa, urish majburiy.</li><li>Bir yurishda bir nechta donani ketma-ket urish mumkin.</li><li>Oxirgi qatorga yetgan dona dama bo'ladi va diagonal bo'ylab uzoq yuradi.</li><li>Raqibning donalari qolmasa yoki yurish imkoni bo'lmasa, yutqazadi.</li><li>O'yinni tark etish yoki taslim bo'lish mag'lubiyat hisoblanadi.</li></ul><div class="state">Stavka: 2–1 000 000 M-COIN. Umumiy bankdan 1% komissiya olinadi, qolgan 99% g'olibga beriladi.</div></div></div>
+  <div id="pool-lobby" class="game-detail"><div class="game-detail-head"><div><div class="title">🎱 8 Ball Pool</div><div class="state">Raqib bilan klassik 8 sharli billiard</div></div><button class="help-dot" onclick="showPoolRules()">?</button></div>
+    <label class="stake-label" for="pool-stake">Stavka miqdori (M-COIN)</label><input id="pool-stake" class="stake-input" type="number" inputmode="numeric" min="2" max="1000000" placeholder="Masalan, 100">
+    <button class="stake-submit" id="pool-join" onclick="joinPool()">🎱 Stavkani qo'yish</button><div class="state" style="text-align:center;margin:8px 0 0">Raqib topilgach o'yin avtomatik boshlanadi · Komissiya 10%</div></div>
+  <div id="pool-rules" class="rules-overlay" onclick="if(event.target===this)hidePoolRules()"><div class="rules-sheet"><div class="game-detail-head"><h3>🎱 8 Ball Pool qoidalari</h3><button class="help-dot" onclick="hidePoolRules()">×</button></div><ul><li>Ikki o'yinchi navbat bilan oq sharni uradi.</li><li>Birinchi qonuniy tushgan rangli shar o'yinchining guruhini belgilaydi: to'liq yoki yo'lli.</li><li>O'z guruhidagi sharlarni tushirgach, 8-raqamli qora sharni tushirish kerak.</li><li>Oq shar cho'ntakka tushsa yoki zarba qoidabuzarlik bo'lsa, navbat raqibga o'tadi.</li><li>8-sharni muddatidan oldin tushirish mag'lubiyat hisoblanadi.</li></ul><div class="state">Stavka: 2–1 000 000 M-COIN. Umumiy bankdan 10% komissiya olinadi.</div></div></div>
+  <div id="checkers-rules" class="rules-overlay" onclick="if(event.target===this)hideCheckersRules()"><div class="rules-sheet"><div class="game-detail-head"><h3>♟ Shashka qoidalari</h3><button class="help-dot" onclick="hideCheckersRules()">×</button></div><ul><li>O'yin 8×8 doskada ikki o'yinchi o'rtasida o'tadi.</li><li>Har bir o'yinchi navbat bilan bitta dona yuradi.</li><li>Raqib donasini urish imkoniyati bo'lsa, urish majburiy.</li><li>Bir yurishda bir nechta donani ketma-ket urish mumkin.</li><li>Oxirgi qatorga yetgan dona dama bo'ladi va diagonal bo'ylab uzoq yuradi.</li><li>Raqibning donalari qolmasa yoki yurish imkoni bo'lmasa, yutqazadi.</li><li>O'yinni tark etish yoki taslim bo'lish mag'lubiyat hisoblanadi.</li></ul><div class="state">Stavka: 2–1 000 000 M-COIN. Umumiy bankdan 10% komissiya olinadi, qolgan 90% g'olibga beriladi.</div></div></div>
   `;}
 function openCheckersApp(){const input=document.getElementById('checkers-stake');if(!input){renderCheckersLobby();return;}document.getElementById('checkers-lobby')?.scrollIntoView({behavior:'smooth'});}
 function showCheckersRules(){document.getElementById('checkers-rules')?.classList.add('open');}
 function hideCheckersRules(){document.getElementById('checkers-rules')?.classList.remove('open');}
-function showPoolPreview(){const el=document.getElementById('pool-preview');if(el){el.hidden=false;el.scrollIntoView({behavior:'smooth',block:'nearest'});}}
-
 function renderGameHome(){document.getElementById('game-root').innerHTML=gameHomeHtml();}
 
 async function joinCheckers(){
@@ -621,7 +633,7 @@ async function joinCheckers(){
   const stake=parseInt(input?.value||'0',10);
   if(!Number.isInteger(stake)||stake<2||stake>1000000)return toast('Stavka 2–1 000 000 coin oralig‘ida bo‘lsin');
   const btn=document.getElementById('checkers-join'); if(btn)btn.disabled=true;
-  try{checkerGame=await api('/api/checkers/join',{stake});checkerPath=[];renderCheckers();startCheckerPolling();}
+  try{checkerGame=await api('/api/checkers/join',{stake});checkerPath=[];renderCheckers();startCheckerPolling();load();}
   catch(e){toast(e.message);if(btn)btn.disabled=false;}
 }
 
@@ -655,7 +667,7 @@ function renderCheckers(){
     <div class="game-board">${cells}</div>
     <div class="state" style="text-align:center">${myTurn?'Donangizni, keyin yurish kataklarini bosing.':'Raqibning yurishi kutilmoqda...'}</div>
     <div class="game-actions"><button class="ghost" onclick="startVoice()">🎙 Mikrofon</button><button class="ghost" onclick="toggleMute()" id="voice-mute" disabled>Ovozni o'chirish</button><button class="ghost" onclick="resignCheckers()">Taslim bo'lish</button></div><div id="voice-status" class="voice-state">Ovozli aloqa ulanmagan</div>
-    <div class="state" style="margin-top:10px">Bank: ${(g.pot||g.stake*2).toLocaleString('uz-UZ')} coin · G'olib: ${g.winner_prize.toLocaleString('uz-UZ')} coin · Komissiya: 1%</div></div>`;
+    <div class="state" style="margin-top:10px">Bank: ${(g.pot||g.stake*2).toLocaleString('uz-UZ')} coin · G'olib: ${g.winner_prize.toLocaleString('uz-UZ')} coin · Komissiya: 10%</div></div>`;
 }
 
 function myTelegramId(){return Number((tg.initDataUnsafe&&tg.initDataUnsafe.user&&tg.initDataUnsafe.user.id)||0);}
@@ -702,6 +714,49 @@ async function pollVoice(){
 }
 function toggleMute(){if(!voiceStream)return;voiceMuted=!voiceMuted;voiceStream.getAudioTracks().forEach(t=>t.enabled=!voiceMuted);const b=document.getElementById('voice-mute');if(b)b.textContent=voiceMuted?'Mikrofonni yoqish':'Ovozni o‘chirish';}
 function stopVoice(send=true){if(send&&checkerGame)api('/api/checkers/voice/'+checkerGame.id,{payload:{type:'hangup'}}).catch(()=>{});clearInterval(voicePoll);voicePoll=null;if(voicePc){voicePc.close();voicePc=null;}if(voiceStream){voiceStream.getTracks().forEach(t=>t.stop());voiceStream=null;}voicePendingCandidates=[];voiceMuted=false;const a=document.getElementById('remote-voice');if(a)a.remove();}
+
+
+// --- 8 Ball Pool: real-time turn-based billiard, server-calculated shots ---
+let poolGame=null,poolPoll=null,poolBusy=false,poolDrag=null,poolClockInterval=null,poolClockExpired=false;
+function openPoolApp(){document.getElementById('pool-lobby')?.scrollIntoView({behavior:'smooth',block:'nearest'});}
+function showPoolRules(){document.getElementById('pool-rules')?.classList.add('open');}
+function hidePoolRules(){document.getElementById('pool-rules')?.classList.remove('open');}
+async function joinPool(){
+  const input=document.getElementById('pool-stake'),stake=parseInt(input?.value||'0',10);
+  if(!Number.isInteger(stake)||stake<2||stake>1000000)return toast('Stavka 2–1 000 000 coin oralig‘ida bo‘lsin');
+  const btn=document.getElementById('pool-join');if(btn)btn.disabled=true;
+  try{poolGame=await api('/api/pool/join',{stake});renderPool();startPoolPolling();load();}
+  catch(e){toast(e.message);if(btn)btn.disabled=false;}
+}
+function startPoolPolling(){clearInterval(poolPoll);poolPoll=setInterval(refreshPool,1700);}
+async function refreshPool(){if(!poolGame||poolBusy||poolDrag)return;try{poolGame=await api('/api/pool/'+poolGame.id);renderPool();if(poolGame.status!=='playing'){clearInterval(poolPoll);if(poolGame.status==='done')load();}}catch(e){console.warn('pool poll',e);}}
+function resetPool(){poolGame=null;poolDrag=null;clearInterval(poolPoll);clearInterval(poolClockInterval);renderGameHome();}
+async function cancelPool(){if(!poolGame)return;try{await api('/api/pool/cancel',{id:poolGame.id});resetPool();await load();}catch(e){toast(e.message);}}
+async function resignPool(){if(!poolGame)return;ask('Taslim bo‘lsangiz, raqib g‘olib bo‘ladi. Davom etasizmi?',async()=>{try{await api('/api/pool/resign',{id:poolGame.id});await refreshPool();await load();}catch(e){toast(e.message);}});}
+function renderPool(){
+ clearInterval(poolClockInterval);poolClockExpired=false;
+ const root=document.getElementById('game-root');if(!poolGame){renderGameHome();return;}const g=poolGame;
+ if(g.status==='waiting'){root.innerHTML=`<button class="back" onclick="cancelPool()">← Bekor qilish</button><div class="card" style="text-align:center;padding:30px 16px"><div style="font-size:48px">🎱</div><div class="title">Raqib qidirilmoqda...</div><div class="state">${g.stake.toLocaleString('uz-UZ')} coin stavka band qilindi. Xuddi shu stavkani qo'ygan raqib kutilmoqda.</div><div class="chip ok">Qidiruv faol</div><button class="ghost" style="width:100%;margin-top:14px" onclick="cancelPool()">Qidiruvni bekor qilish</button></div>`;return;}
+ if(g.status!=='playing'){const won=g.winner===myTelegramId();root.innerHTML=`<div class="card" style="text-align:center;padding:30px 16px"><div style="font-size:48px">${won?'🏆':'🎱'}</div><div class="title">${won?'Tabriklaymiz, yutdingiz!':g.winner?'Bu safar raqib yutdi':'O‘yin yakunlandi'}</div><div class="state">${won?'Sizga '+g.winner_prize.toLocaleString('uz-UZ')+' coin berildi':'Keyingi safar omad!'}</div><button style="width:100%" onclick="resetPool()">O‘yinlarga qaytish</button></div>`;return;}
+ const myTurn=g.turn===myTelegramId();const groups=g.state.groups||{};const mine=g.mine==='p1'?groups.p1:groups.p2;
+ root.innerHTML=`<button class="back" onclick="leavePool()">← O'yinlardan chiqish</button><div class="card" style="padding:12px"><div class="pool-hud"><div><div class="title">🎱 8 Ball Pool</div><div class="state">${myTurn?'Sizning zarbangiz':'Raqib zarba bermoqda'} · ${mine? (mine==='solids'?'To‘liq sharlar':'Yo‘lli sharlar'):'Guruh hali belgilanmagan'}</div></div><span class="time">${g.stake.toLocaleString('uz-UZ')} coin</span></div><div class="pool-clock-row"><div class="pool-clock"><small>NAVBAT VAQTI</small><strong id="pool-turn-clock">${fmtPoolTime(g.turn_left)}</strong></div><div class="pool-clock"><small>UMUMIY VAQT</small><strong id="pool-game-clock">${fmtPoolTime(g.game_left)}</strong></div><div class="pool-clock"><small>VAQT JARIMALARI</small><strong>${g.my_timeouts||0}/3</strong></div></div><div class="pool-table-wrap"><canvas id="pool-canvas" width="1000" height="500"></canvas></div><div class="pool-hud"><span class="chip ok">Bank ${g.pot.toLocaleString('uz-UZ')}</span><span class="chip">Sizga ${g.winner_prize.toLocaleString('uz-UZ')} coin</span><span class="chip">Komissiya 10%</span></div><div class="pool-help">Oq shar ortidan barmog‘ingizni orqaga tortib, qo‘yib yuboring — zarba beriladi. Navbatda 30 soniya, butun o‘yinda 15 daqiqa.</div><div class="pool-action" style="margin-top:12px"><button class="ghost" onclick="resignPool()">Taslim bo‘lish</button></div></div>`;
+ drawPool();attachPoolCanvas();startPoolClock(g);
+}
+function fmtPoolTime(sec){sec=Math.max(0,Math.floor(sec||0));return String(Math.floor(sec/60)).padStart(2,'0')+':'+String(sec%60).padStart(2,'0');}
+function startPoolClock(g){let turnEnd=Date.now()+Math.max(0,g.turn_left||0)*1000,gameEnd=Date.now()+Math.max(0,g.game_left||0)*1000;const tick=()=>{const t=Math.max(0,Math.ceil((turnEnd-Date.now())/1000)),all=Math.max(0,Math.ceil((gameEnd-Date.now())/1000));const a=document.getElementById('pool-turn-clock'),b=document.getElementById('pool-game-clock');if(a)a.textContent=fmtPoolTime(t);if(b)b.textContent=fmtPoolTime(all);if((t===0||all===0)&&!poolClockExpired){poolClockExpired=true;refreshPool();}};tick();poolClockInterval=setInterval(tick,250);}
+function poolCanvasPoint(e,canvas){const r=canvas.getBoundingClientRect();return {x:(e.clientX-r.left)/r.width*1000,y:(e.clientY-r.top)/r.height*500};}
+function attachPoolCanvas(){const c=document.getElementById('pool-canvas');if(!c)return;c.onpointerdown=e=>{if(!poolGame||poolGame.status!=='playing'||poolGame.turn!==myTelegramId()||poolBusy)return;const cue=poolGame.state.balls.find(b=>b.n===0&&b.on);if(!cue)return;const pt=poolCanvasPoint(e,c);if(Math.hypot(pt.x-cue.x,pt.y-cue.y)<85){poolDrag={x:pt.x,y:pt.y};c.setPointerCapture(e.pointerId);drawPool();}};c.onpointermove=e=>{if(poolDrag){poolDrag.current=poolCanvasPoint(e,c);drawPool();}};c.onpointerup=e=>{if(!poolDrag)return;const pt=poolCanvasPoint(e,c),cue=poolGame.state.balls.find(b=>b.n===0&&b.on);const dx=cue.x-pt.x,dy=cue.y-pt.y,dist=Math.hypot(dx,dy);poolDrag=null;if(dist<8){drawPool();return;}sendPoolShot(Math.atan2(dy,dx),Math.min(1,dist/230));};}
+async function sendPoolShot(angle,power){if(!poolGame||poolBusy)return;poolBusy=true;try{poolGame=await api('/api/pool/shot',{id:poolGame.id,angle,power});renderPool();if(poolGame.status!=='playing'){clearInterval(poolPoll);await load();}}catch(e){toast(e.message);}finally{poolBusy=false;}}
+function drawPool(){const c=document.getElementById('pool-canvas');if(!c||!poolGame)return;const x=c.getContext('2d');x.clearRect(0,0,1000,500);
+ x.fillStyle='#07583d';x.fillRect(0,0,1000,500);x.strokeStyle='#c99a5a';x.lineWidth=5;x.strokeRect(24,24,952,452);
+ const pockets=[[28,28],[500,18],[972,28],[28,472],[500,482],[972,472]];for(const p of pockets){x.beginPath();x.arc(p[0],p[1],27,0,Math.PI*2);x.fillStyle='#080d12';x.fill();x.strokeStyle='#4b2b18';x.lineWidth=4;x.stroke();}
+ // cloth highlights and diamonds
+ x.strokeStyle='rgba(255,255,255,.07)';x.lineWidth=1;x.beginPath();x.moveTo(500,35);x.lineTo(500,465);x.stroke();for(let i=0;i<7;i++){for(const yy of [13,487]){x.beginPath();x.arc(150+i*116,yy,3,0,Math.PI*2);x.fillStyle='#e6c18b';x.fill();}}
+ const balls=poolGame.state.balls||[];for(const b of balls){if(!b.on)continue;x.save();x.beginPath();x.arc(b.x,b.y,10,0,Math.PI*2);x.fillStyle='#f8f7ef';x.fill();x.shadowColor='#0009';x.shadowBlur=5;x.shadowOffsetY=2;x.fill();x.shadowColor='transparent';if(b.n>8&&b.n<16){x.beginPath();x.arc(b.x,b.y,10,Math.PI*.25,Math.PI*1.25);x.fillStyle=poolBallColor(b.n);x.fill();x.beginPath();x.arc(b.x,b.y,10,-Math.PI*.75,Math.PI*.25);x.fillStyle='#f8f7ef';x.fill();}else if(b.n!==0){x.beginPath();x.arc(b.x,b.y,10,0,Math.PI*2);x.fillStyle=poolBallColor(b.n);x.fill();}if(b.n!==0){x.beginPath();x.arc(b.x,b.y,4.8,0,Math.PI*2);x.fillStyle='#fff';x.fill();x.fillStyle='#111';x.font='bold 6px system-ui';x.textAlign='center';x.textBaseline='middle';x.fillText(String(b.n),b.x,b.y+.3);}x.restore();}
+ if(poolDrag){const cue=balls.find(b=>b.n===0&&b.on);if(cue){const pt=poolDrag.current||poolDrag,dx=cue.x-pt.x,dy=cue.y-pt.y,mag=Math.hypot(dx,dy)||1;x.save();x.setLineDash([10,8]);x.strokeStyle='#fff8';x.lineWidth=2;x.beginPath();x.moveTo(cue.x,cue.y);x.lineTo(cue.x+dx/mag*250,cue.y+dy/mag*250);x.stroke();x.setLineDash([]);x.strokeStyle='#d6a56b';x.lineWidth=5;x.beginPath();x.moveTo(cue.x-dx/mag*20,cue.y-dy/mag*20);x.lineTo(cue.x-dx/mag*(35+Math.min(100,Math.hypot(dx,dy))),cue.y-dy/mag*(35+Math.min(100,Math.hypot(dx,dy))));x.stroke();x.restore();}}
+}
+function poolBallColor(n){return ['#f4d03f','#2368c4','#d52d31','#6838a8','#f18b22','#228b57','#8e1c31','#101116','#f2d34b','#2368c4','#d52d31','#6838a8','#f18b22','#228b57','#8e1c31'][n-1]||'#fff';}
+function leavePool(){if(poolGame?.status==='waiting')return cancelPool();if(poolGame?.status==='playing')return resignPool();resetPool();}
 
 load();
 setInterval(tick, 1000);

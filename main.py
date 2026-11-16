@@ -1,4 +1,4 @@
-import os, re, json, hmac, hashlib, time, asyncio, base64
+import os, re, json, hmac, hashlib, time, asyncio, base64, math
 import html as _html
 import urllib.request
 from urllib.parse import parse_qsl, urlencode
@@ -88,6 +88,16 @@ def init_db():
             id BIGSERIAL PRIMARY KEY, game_id BIGINT NOT NULL, from_uid BIGINT NOT NULL,
             to_uid BIGINT NOT NULL, payload JSONB NOT NULL, ts BIGINT NOT NULL)""")
         c.execute("CREATE INDEX IF NOT EXISTS checkers_voice_game ON checkers_voice(game_id, id)")
+        c.execute("""CREATE TABLE IF NOT EXISTS pool_games(
+            id BIGSERIAL PRIMARY KEY, p1 BIGINT NOT NULL, p2 BIGINT,
+            stake BIGINT NOT NULL, state JSONB NOT NULL, turn BIGINT NOT NULL,
+            status TEXT DEFAULT 'waiting', winner BIGINT, ts BIGINT NOT NULL,
+            updated_at BIGINT NOT NULL)""")
+        c.execute("ALTER TABLE pool_games ADD COLUMN IF NOT EXISTS turn_started_at BIGINT NOT NULL DEFAULT 0")
+        c.execute("ALTER TABLE pool_games ADD COLUMN IF NOT EXISTS game_started_at BIGINT NOT NULL DEFAULT 0")
+        c.execute("ALTER TABLE pool_games ADD COLUMN IF NOT EXISTS p1_timeouts INTEGER NOT NULL DEFAULT 0")
+        c.execute("ALTER TABLE pool_games ADD COLUMN IF NOT EXISTS p2_timeouts INTEGER NOT NULL DEFAULT 0")
+        c.execute("CREATE INDEX IF NOT EXISTS pool_waiting ON pool_games(status, stake, ts)")
         c.execute("""CREATE TABLE IF NOT EXISTS platform_ledger(
             id BIGSERIAL PRIMARY KEY, game_id BIGINT, amount BIGINT NOT NULL,
             kind TEXT NOT NULL, ts BIGINT NOT NULL)""")
@@ -411,7 +421,7 @@ def place_bid(b: Bid, uid: int):
 # --- Onlayn shashka (8x8, rus qoidasi: majburiy urish, dama uzoq yuradi) ---
 CHECKERS_MIN_STAKE = 2
 CHECKERS_MAX_STAKE = 1_000_000
-CHECKERS_FEE_PERCENT = 1
+CHECKERS_FEE_PERCENT = 10
 
 
 def checkers_initial_board():
@@ -542,7 +552,7 @@ def _checkers_finish(c, g, winner):
         c.execute("UPDATE users SET balance=balance+%s, wins=COALESCE(wins,0)+1 WHERE id=%s",
                   (prize, winner))
         log_coin(c, winner, prize, "checkers_win")
-        # Platforma komissiyasi bankning 1 foizi sifatida qayd etiladi.
+        # Platforma komissiyasi umumiy bankning 10 foizi sifatida qayd etiladi.
         fee = g["stake"] * 2 - prize
         c.execute("INSERT INTO platform_ledger(game_id,amount,kind,ts) VALUES(%s,%s,%s,%s)",
                   (g["id"], fee, "checkers_commission", int(time.time())))
@@ -697,6 +707,184 @@ def checkers_voice_get(game_id: int, after: int = 0, x_init_data: str = Header()
         rows = c.execute("SELECT id,payload FROM checkers_voice WHERE game_id=%s AND to_uid=%s AND id>%s ORDER BY id LIMIT 50",
                          (game_id, uid, after)).fetchall()
     return [{"id": r["id"], "payload": r["payload"]} for r in rows]
+
+
+# --- 8 Ball Pool: server-side turn and ball physics ---
+POOL_MIN_STAKE=2
+POOL_MAX_STAKE=1_000_000
+POOL_FEE_PERCENT=10
+POOL_POCKETS=[(28,28),(500,18),(972,28),(28,472),(500,482),(972,472)]
+
+def pool_initial_state():
+    balls=[{"id":0,"n":0,"x":250.0,"y":250.0,"vx":0.0,"vy":0.0,"on":True}]
+    order=[1,9,2,10,8,3,11,4,12,5,13,6,14,7,15]; k=0
+    for row in range(5):
+        for col in range(row+1):
+            n=order[k]; k+=1
+            balls.append({"id":n,"n":n,"x":690+row*18.0,"y":250+(col-row/2)*20.8,"vx":0.0,"vy":0.0,"on":True})
+    return {"balls":balls,"groups":{"p1":None,"p2":None},"last_potted":[],"shot":0}
+
+def pool_simulate(state,angle,power):
+    if not math.isfinite(float(angle)) or not math.isfinite(float(power)): raise HTTPException(400,"Zarba noto'g'ri")
+    power=max(.08,min(1.0,float(power))); balls=[dict(b) for b in state["balls"] if b.get("on")]
+    cue=next((b for b in balls if b["n"]==0),None)
+    if cue is None: raise HTTPException(400,"Oq shar topilmadi")
+    cue["vx"]=math.cos(float(angle))*720*power; cue["vy"]=math.sin(float(angle))*720*power
+    potted=[]; first_hit=False; first_contact=None; dt=1/60
+    for _ in range(900):
+        moving=False
+        for b in balls:
+            b["x"]+=b["vx"]*dt; b["y"]+=b["vy"]*dt
+            b["vx"]*=.991; b["vy"]*=.991
+            if abs(b["vx"])+abs(b["vy"])<1.8: b["vx"]=b["vy"]=0.0
+            if b["vx"] or b["vy"]: moving=True
+        for i,a in enumerate(balls):
+            for b in balls[i+1:]:
+                dx=b["x"]-a["x"];dy=b["y"]-a["y"];d2=dx*dx+dy*dy
+                if d2<=0 or d2>=400: continue
+                d=math.sqrt(d2);nx=dx/d;ny=dy/d;over=20-d
+                a["x"]-=nx*over/2;a["y"]-=ny*over/2;b["x"]+=nx*over/2;b["y"]+=ny*over/2
+                rel=(a["vx"]-b["vx"])*nx+(a["vy"]-b["vy"])*ny
+                if rel>0:
+                    a["vx"]-=rel*nx;a["vy"]-=rel*ny;b["vx"]+=rel*nx;b["vy"]+=rel*ny
+                if a["n"]==0 or b["n"]==0:
+                    first_hit=True
+                    if first_contact is None:first_contact=b["n"] if a["n"]==0 else a["n"]
+        for b in balls:
+            if not any((b["x"]-px)**2+(b["y"]-py)**2<48**2 for px,py in POOL_POCKETS):
+                if b["x"]<35:b["x"]=35;b["vx"]=abs(b["vx"])*.92
+                if b["x"]>965:b["x"]=965;b["vx"]=-abs(b["vx"])*.92
+                if b["y"]<35:b["y"]=35;b["vy"]=abs(b["vy"])*.92
+                if b["y"]>465:b["y"]=465;b["vy"]=-abs(b["vy"])*.92
+        for b in list(balls):
+            if any((b["x"]-px)**2+(b["y"]-py)**2<625 for px,py in POOL_POCKETS):
+                potted.append(b["n"]);balls.remove(b)
+        if not moving:break
+    foul=(0 in potted) or not first_hit
+    if foul: balls=[b for b in balls if b["n"]!=0];balls.insert(0,{"id":0,"n":0,"x":250.0,"y":250.0,"vx":0.0,"vy":0.0,"on":True})
+    for b in balls:b["vx"]=b["vy"]=0.0
+    state["balls"]=balls;state["last_potted"]=potted;state["first_contact"]=first_contact;state["shot"]=int(state.get("shot",0))+1
+    return state,foul,first_hit,potted
+
+POOL_TURN_SECONDS=30
+POOL_GAME_SECONDS=900
+
+def pool_view(g,uid):
+    now=int(time.time())
+    turn_started=int(g.get("turn_started_at") or g.get("updated_at") or now)
+    game_started=int(g.get("game_started_at") or now)
+    return {"id":g["id"],"status":g["status"],"stake":g["stake"],"state":g["state"],"turn":g["turn"],"mine":"p1" if g["p1"]==uid else "p2","opponent":g["p2"] if g["p1"]==uid else g["p1"],"winner":g["winner"],"pot":g["stake"]*2,"winner_prize":g["stake"]*2*(100-POOL_FEE_PERCENT)//100,"turn_left":max(0,POOL_TURN_SECONDS-(now-turn_started)),"game_left":max(0,POOL_GAME_SECONDS-(now-game_started)),"my_timeouts":int(g.get("p1_timeouts" if g["p1"]==uid else "p2_timeouts") or 0),"opponent_timeouts":int(g.get("p2_timeouts" if g["p1"]==uid else "p1_timeouts") or 0)}
+
+def pool_apply_clock(c,g,now):
+    if g["status"]!="playing": return
+    if int(g.get("game_started_at") or now) and now-int(g.get("game_started_at") or now)>=POOL_GAME_SECONDS:
+        loser=g["turn"]
+        pool_finish(c,g,g["p2"] if loser==g["p1"] else g["p1"])
+        return
+    started=int(g.get("turn_started_at") or g.get("updated_at") or now)
+    if now-started>=POOL_TURN_SECONDS:
+        key="p1_timeouts" if g["turn"]==g["p1"] else "p2_timeouts"
+        count=int(g.get(key) or 0)+1
+        c.execute(f"UPDATE pool_games SET {key}=%s WHERE id=%s",(count,g["id"]))
+        g[key]=count
+        if count>=3:
+            pool_finish(c,g,g["p2"] if g["turn"]==g["p1"] else g["p1"])
+            return
+        next_turn=g["p2"] if g["turn"]==g["p1"] else g["p1"]
+        c.execute("UPDATE pool_games SET turn=%s,turn_started_at=%s,updated_at=%s WHERE id=%s",(next_turn,now,now,g["id"]))
+        g.update(turn=next_turn,turn_started_at=now,updated_at=now)
+
+def pool_finish(c,g,winner):
+    if winner is None:c.execute("UPDATE users SET balance=balance+%s WHERE id=ANY(%s)",(g["stake"],[g["p1"],g["p2"]]))
+    else:
+        prize=g["stake"]*2*(100-POOL_FEE_PERCENT)//100
+        c.execute("UPDATE users SET balance=balance+%s,wins=COALESCE(wins,0)+1 WHERE id=%s",(prize,winner));log_coin(c,winner,prize,"pool_win")
+        c.execute("INSERT INTO platform_ledger(game_id,amount,kind,ts) VALUES(%s,%s,%s,%s)",(g["id"],g["stake"]*2-prize,"pool_commission",int(time.time())))
+    c.execute("UPDATE pool_games SET status='done',winner=%s,updated_at=%s WHERE id=%s",(winner,int(time.time()),g["id"]));g["status"],g["winner"]="done",winner
+
+class PoolJoin(BaseModel): stake:int
+class PoolShot(BaseModel): id:int; angle:float; power:float
+class PoolAction(BaseModel): id:int
+
+@app.post("/api/pool/join")
+def pool_join(j:PoolJoin,x_init_data:str=Header()):
+    uid=auth(x_init_data)
+    if j.stake<2 or j.stake>1_000_000:raise HTTPException(400,"Stavka 2–1 000 000 coin oralig'ida bo'lsin")
+    now=int(time.time())
+    with db() as c:
+        active=c.execute("SELECT * FROM pool_games WHERE (p1=%s OR p2=%s) AND status='playing' ORDER BY id DESC LIMIT 1 FOR UPDATE",(uid,uid)).fetchone()
+        if active:return pool_view(active,uid)
+        mine=c.execute("SELECT * FROM pool_games WHERE p1=%s AND status='waiting' ORDER BY id DESC LIMIT 1 FOR UPDATE",(uid,)).fetchone()
+        if mine:return pool_view(mine,uid)
+        waiting=c.execute("SELECT * FROM pool_games WHERE status='waiting' AND p1<>%s AND stake=%s AND ts>%s ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED",(uid,j.stake,now-180)).fetchone()
+        u=c.execute("SELECT balance FROM users WHERE id=%s FOR UPDATE",(uid,)).fetchone()
+        if not u or u["balance"]<j.stake:raise HTTPException(400,"Balansda coin yetarli emas")
+        c.execute("UPDATE users SET balance=balance-%s WHERE id=%s",(j.stake,uid));log_coin(c,uid,-j.stake,"pool_stake")
+        if waiting:g=c.execute("UPDATE pool_games SET p2=%s,status='playing',turn=p1,turn_started_at=%s,game_started_at=%s,updated_at=%s WHERE id=%s RETURNING *",(uid,now,now,now,waiting["id"])).fetchone()
+        else:g=c.execute("INSERT INTO pool_games(p1,stake,state,turn,status,ts,updated_at) VALUES(%s,%s,%s,%s,'waiting',%s,%s) RETURNING *",(uid,j.stake,json.dumps(pool_initial_state()),uid,now,now)).fetchone()
+    return pool_view(g,uid)
+
+@app.get("/api/pool/{game_id}")
+def pool_state(game_id:int,x_init_data:str=Header()):
+    uid=auth(x_init_data);now=int(time.time())
+    with db() as c:
+        g=c.execute("SELECT * FROM pool_games WHERE id=%s FOR UPDATE",(game_id,)).fetchone()
+        if not g or uid not in (g["p1"],g["p2"]):raise HTTPException(404,"O'yin topilmadi")
+        if g["status"]=="waiting" and g["ts"]<now-180:
+            c.execute("UPDATE users SET balance=balance+%s WHERE id=%s",(g["stake"],g["p1"]));c.execute("UPDATE pool_games SET status='expired',updated_at=%s WHERE id=%s",(now,game_id));g["status"]="expired"
+        elif g["status"]=="playing":
+            pool_apply_clock(c,g,now)
+    return pool_view(g,uid)
+
+@app.post("/api/pool/shot")
+def pool_shot(m:PoolShot,x_init_data:str=Header()):
+    uid=auth(x_init_data);now=int(time.time())
+    with db() as c:
+        g=c.execute("SELECT * FROM pool_games WHERE id=%s FOR UPDATE",(m.id,)).fetchone()
+        if not g or g["status"]!="playing" or uid not in (g["p1"],g["p2"]):raise HTTPException(400,"O'yin faol emas")
+        pool_apply_clock(c,g,now)
+        if g["status"]!="playing": return pool_view(g,uid)
+        if g["turn"]!=uid:raise HTTPException(400,"Hozir raqibning navbati")
+        before=g["state"]; old_groups=before.get("groups",{"p1":None,"p2":None})
+        mine="p1" if uid==g["p1"] else "p2";other="p2" if mine=="p1" else "p1";mg=old_groups.get(mine)
+        old_own_left=sum(1 for b in before["balls"] if b["n"] not in (0,8) and ((b["n"]<8 and mg=="solids") or (b["n"]>8 and mg=="stripes")))
+        state,foul,hit,potted=pool_simulate(before,m.angle,m.power);groups=state.get("groups",old_groups);nums=[n for n in potted if n not in (0,8)]
+        if groups.get(mine) is None and nums:
+            solid=nums[0]<8;groups[mine]="solids" if solid else "stripes";groups[other]="stripes" if solid else "solids"
+        mg=groups.get(mine);contact=state.get("first_contact")
+        if contact is None or (contact==8 and (mg is None or old_own_left>0)) or (mg=="solids" and contact>8) or (mg=="stripes" and 0<contact<8):foul=True
+        if foul:
+            balls=[b for b in state["balls"] if b["n"]!=0];balls.insert(0,{"id":0,"n":0,"x":250.0,"y":250.0,"vx":0.0,"vy":0.0,"on":True});state["balls"]=balls
+        state["groups"]=groups
+        own_potted=[n for n in nums if (mg=="solids" and n<8) or (mg=="stripes" and n>8)]
+        own_left=sum(1 for b in state["balls"] if b["n"] not in (0,8) and ((b["n"]<8 and mg=="solids") or (b["n"]>8 and mg=="stripes")))
+        if 8 in potted:winner=uid if mg is not None and old_own_left==0 and not foul else (g["p2"] if uid==g["p1"] else g["p1"])
+        else:winner=None
+        next_uid=g["p2"] if uid==g["p1"] else g["p1"]
+        if winner is not None:
+            c.execute("UPDATE pool_games SET state=%s WHERE id=%s",(json.dumps(state),m.id));g["state"]=state;pool_finish(c,g,winner)
+        else:
+            turn=next_uid if foul or not own_potted else uid
+            c.execute("UPDATE pool_games SET state=%s,turn=%s,turn_started_at=%s,updated_at=%s WHERE id=%s",(json.dumps(state),turn,now,now,m.id));g.update(state=state,turn=turn,turn_started_at=now,updated_at=now)
+    return pool_view(g,uid)
+
+@app.post("/api/pool/cancel")
+def pool_cancel(m:PoolAction,x_init_data:str=Header()):
+    uid=auth(x_init_data)
+    with db() as c:
+        g=c.execute("SELECT * FROM pool_games WHERE id=%s FOR UPDATE",(m.id,)).fetchone()
+        if not g or g["p1"]!=uid or g["status"]!="waiting":raise HTTPException(400,"Kutishdagi o'yin topilmadi")
+        c.execute("UPDATE users SET balance=balance+%s WHERE id=%s",(g["stake"],uid));c.execute("UPDATE pool_games SET status='cancelled',updated_at=%s WHERE id=%s",(int(time.time()),m.id))
+    return {"ok":True}
+
+@app.post("/api/pool/resign")
+def pool_resign(m:PoolAction,x_init_data:str=Header()):
+    uid=auth(x_init_data)
+    with db() as c:
+        g=c.execute("SELECT * FROM pool_games WHERE id=%s FOR UPDATE",(m.id,)).fetchone()
+        if not g or g["status"]!="playing" or uid not in (g["p1"],g["p2"]):raise HTTPException(400,"O'yin faol emas")
+        pool_finish(c,g,g["p2"] if uid==g["p1"] else g["p1"])
+    return {"ok":True}
 
 
 MOVES = {"rock": "scissors", "scissors": "paper", "paper": "rock"}
