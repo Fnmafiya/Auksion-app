@@ -78,6 +78,19 @@ def init_db():
         c.execute("""CREATE TABLE IF NOT EXISTS duels(
             id BIGSERIAL PRIMARY KEY, p1 BIGINT, p2 BIGINT, m1 TEXT, m2 TEXT,
             status TEXT DEFAULT 'waiting', winner BIGINT, ts BIGINT)""")
+        c.execute("""CREATE TABLE IF NOT EXISTS checkers_games(
+            id BIGSERIAL PRIMARY KEY, p1 BIGINT NOT NULL, p2 BIGINT,
+            stake BIGINT NOT NULL, board JSONB NOT NULL, turn BIGINT NOT NULL,
+            status TEXT DEFAULT 'waiting', winner BIGINT, ts BIGINT NOT NULL,
+            updated_at BIGINT NOT NULL, move_no BIGINT DEFAULT 0)""")
+        c.execute("CREATE INDEX IF NOT EXISTS checkers_waiting ON checkers_games(status, stake, ts)")
+        c.execute("""CREATE TABLE IF NOT EXISTS checkers_voice(
+            id BIGSERIAL PRIMARY KEY, game_id BIGINT NOT NULL, from_uid BIGINT NOT NULL,
+            to_uid BIGINT NOT NULL, payload JSONB NOT NULL, ts BIGINT NOT NULL)""")
+        c.execute("CREATE INDEX IF NOT EXISTS checkers_voice_game ON checkers_voice(game_id, id)")
+        c.execute("""CREATE TABLE IF NOT EXISTS platform_ledger(
+            id BIGSERIAL PRIMARY KEY, game_id BIGINT, amount BIGINT NOT NULL,
+            kind TEXT NOT NULL, ts BIGINT NOT NULL)""")
 
 
 def tg(method, **params):
@@ -392,6 +405,298 @@ def place_bid(b: Bid, uid: int):
         c.execute("INSERT INTO bids(auction_id,user_id,amount,ts) VALUES(%s,%s,%s,%s)",
                   (a["id"], uid, b.amount, int(time.time())))
     return {"ok": True, "leading": leading}
+
+
+
+# --- Onlayn shashka (8x8, rus qoidasi: majburiy urish, dama uzoq yuradi) ---
+CHECKERS_MIN_STAKE = 2
+CHECKERS_MAX_STAKE = 1_000_000
+CHECKERS_FEE_PERCENT = 25
+
+
+def checkers_initial_board():
+    b = [None] * 64
+    for r in range(3):
+        for col in range(8):
+            if (r + col) % 2 == 1:
+                b[r * 8 + col] = "b"
+    for r in range(5, 8):
+        for col in range(8):
+            if (r + col) % 2 == 1:
+                b[r * 8 + col] = "r"
+    return b
+
+
+def _inside(r, col):
+    return 0 <= r < 8 and 0 <= col < 8
+
+
+def _captures_from(board, start):
+    piece = board[start]
+    if not piece:
+        return []
+    side = piece.lower()
+    king = piece.isupper()
+    sr, sc = divmod(start, 8)
+    dirs = [(-1,-1),(-1,1),(1,-1),(1,1)]
+    results = []
+
+    def walk(pos, b, path, taken):
+        r, col = divmod(pos, 8)
+        found = False
+        for dr, dc in dirs:
+            if king:
+                rr, cc = r + dr, col + dc
+                enemy = None
+                while _inside(rr, cc):
+                    ix = rr * 8 + cc
+                    if b[ix]:
+                        if b[ix].lower() == side or enemy is not None:
+                            break
+                        enemy = ix
+                    elif enemy is not None:
+                        nb = b.copy()
+                        nb[pos] = None
+                        nb[enemy] = None
+                        nb[ix] = piece
+                        found = True
+                        walk(ix, nb, path + [ix], taken + [enemy])
+                    rr += dr; cc += dc
+            else:
+                er, ec = r + dr, col + dc
+                lr, lc = r + 2*dr, col + 2*dc
+                if _inside(lr, lc) and _inside(er, ec):
+                    enemy = er * 8 + ec
+                    land = lr * 8 + lc
+                    if b[enemy] and b[enemy].lower() != side and not b[land]:
+                        nb = b.copy()
+                        nb[pos] = None; nb[enemy] = None; nb[land] = piece
+                        found = True
+                        walk(land, nb, path + [land], taken + [enemy])
+        if not found and taken:
+            results.append({"path": path, "captures": taken})
+    walk(start, board, [start], [])
+    return results
+
+
+def checkers_legal_moves(board, side):
+    captures = []
+    for i, piece in enumerate(board):
+        if piece and piece.lower() == side:
+            captures.extend(_captures_from(board, i))
+    if captures:
+        return captures
+    moves = []
+    for i, piece in enumerate(board):
+        if not piece or piece.lower() != side:
+            continue
+        r, col = divmod(i, 8)
+        dirs = [(-1,-1),(-1,1),(1,-1),(1,1)] if piece.isupper() else ([(-1,-1),(-1,1)] if side == "r" else [(1,-1),(1,1)])
+        for dr, dc in dirs:
+            rr, cc = r + dr, col + dc
+            while _inside(rr, cc) and not board[rr*8+cc]:
+                moves.append({"path": [i, rr*8+cc], "captures": []})
+                if not piece.isupper():
+                    break
+                rr += dr; cc += dc
+    return moves
+
+
+def checkers_apply_move(board, move):
+    b = board.copy()
+    path = move["path"]
+    piece = b[path[0]]
+    b[path[0]] = None
+    for ix in move["captures"]:
+        b[ix] = None
+    dest = path[-1]
+    row = dest // 8
+    if piece == "r" and row == 0: piece = "R"
+    if piece == "b" and row == 7: piece = "B"
+    b[dest] = piece
+    return b
+
+
+def checkers_view(g, uid):
+    mine = "red" if g["p1"] == uid else "black"
+    opponent = g["p2"] if g["p1"] == uid else g["p1"]
+    return {"id": g["id"], "status": g["status"], "stake": g["stake"],
+            "board": g["board"], "turn": g["turn"], "mine": mine,
+            "opponent": opponent, "winner": g["winner"],
+            "move_no": g.get("move_no", 0),
+            "pot": g["stake"] * 2,
+            "winner_prize": (g["stake"] * 2 * (100-CHECKERS_FEE_PERCENT)) // 100,
+            "legal_moves": checkers_legal_moves(g["board"], "r" if g["p1"] == uid else "b")
+                if g["status"] == "playing" and g["turn"] == uid else []}
+
+
+def _checkers_finish(c, g, winner):
+    if g["status"] != "playing":
+        return
+    if winner is None:
+        # Durang yoki bekor qilingan o'yin: ikkala stavka ham qaytariladi.
+        c.execute("UPDATE users SET balance=balance+%s WHERE id=ANY(%s)",
+                  (g["stake"], [g["p1"], g["p2"]]))
+    else:
+        prize = (g["stake"] * 2 * (100-CHECKERS_FEE_PERCENT)) // 100
+        c.execute("UPDATE users SET balance=balance+%s, wins=COALESCE(wins,0)+1 WHERE id=%s",
+                  (prize, winner))
+        log_coin(c, winner, prize, "checkers_win")
+        # Platforma komissiyasi bankning 25 foizi sifatida qayd etiladi.
+        fee = g["stake"] * 2 - prize
+        c.execute("INSERT INTO platform_ledger(game_id,amount,kind,ts) VALUES(%s,%s,%s,%s)",
+                  (g["id"], fee, "checkers_commission", int(time.time())))
+    c.execute("UPDATE checkers_games SET status='done', winner=%s, updated_at=%s WHERE id=%s",
+              (winner, int(time.time()), g["id"]))
+    g["status"], g["winner"] = "done", winner
+
+
+class CheckersJoin(BaseModel):
+    stake: int
+
+
+class CheckersMove(BaseModel):
+    id: int
+    path: list[int]
+
+
+class CheckersSignal(BaseModel):
+    payload: dict
+
+
+class CheckersAction(BaseModel):
+    id: int
+
+
+@app.post("/api/checkers/join")
+def checkers_join(j: CheckersJoin, x_init_data: str = Header()):
+    uid = auth(x_init_data)
+    if j.stake < CHECKERS_MIN_STAKE or j.stake > CHECKERS_MAX_STAKE:
+        raise HTTPException(400, f"Stavka {CHECKERS_MIN_STAKE} dan {CHECKERS_MAX_STAKE} coin gacha bo'lishi kerak")
+    now = int(time.time())
+    with db() as c:
+        active = c.execute("SELECT * FROM checkers_games WHERE (p1=%s OR p2=%s) AND status='playing' ORDER BY id DESC LIMIT 1 FOR UPDATE", (uid, uid)).fetchone()
+        if active:
+            return checkers_view(active, uid)
+        mine = c.execute("SELECT * FROM checkers_games WHERE p1=%s AND status='waiting' ORDER BY id DESC LIMIT 1 FOR UPDATE", (uid,)).fetchone()
+        if mine:
+            return checkers_view(mine, uid)
+        # Faqat aynan bir xil stavka qo'ygan raqib bilan juftlaydi.
+        waiting = c.execute("SELECT * FROM checkers_games WHERE status='waiting' AND p1<>%s AND stake=%s AND ts>%s ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED",
+                            (uid, j.stake, now-180)).fetchone()
+        u = c.execute("SELECT balance FROM users WHERE id=%s FOR UPDATE", (uid,)).fetchone()
+        if not u or u["balance"] < j.stake:
+            raise HTTPException(400, "Balansda coin yetarli emas")
+        c.execute("UPDATE users SET balance=balance-%s WHERE id=%s", (j.stake, uid))
+        log_coin(c, uid, -j.stake, "checkers_stake")
+        if waiting:
+            g = c.execute("UPDATE checkers_games SET p2=%s,status='playing',turn=p1,updated_at=%s WHERE id=%s RETURNING *",
+                          (uid, now, waiting["id"])).fetchone()
+        else:
+            g = c.execute("INSERT INTO checkers_games(p1,stake,board,turn,status,ts,updated_at) VALUES(%s,%s,%s,%s,'waiting',%s,%s) RETURNING *",
+                          (uid, j.stake, json.dumps(checkers_initial_board()), uid, now, now)).fetchone()
+    return checkers_view(g, uid)
+
+
+@app.get("/api/checkers/{game_id}")
+def checkers_state(game_id: int, x_init_data: str = Header()):
+    uid = auth(x_init_data)
+    now = int(time.time())
+    with db() as c:
+        g = c.execute("SELECT * FROM checkers_games WHERE id=%s FOR UPDATE", (game_id,)).fetchone()
+        if not g or uid not in (g["p1"], g["p2"]):
+            raise HTTPException(404, "O'yin topilmadi")
+        if g["status"] == "waiting" and g["ts"] < now-180:
+            c.execute("UPDATE users SET balance=balance+%s WHERE id=%s", (g["stake"], g["p1"]))
+            c.execute("UPDATE checkers_games SET status='expired',updated_at=%s WHERE id=%s", (now, game_id))
+            g["status"] = "expired"
+        elif g["status"] == "playing" and g["updated_at"] < now-600:
+            # 10 daqiqa yurishsiz qolsa, navbatdagi o'yinchi yutqazgan hisoblanadi.
+            _checkers_finish(c, g, g["p2"] if g["turn"] == g["p1"] else g["p1"])
+        return checkers_view(g, uid)
+
+
+@app.post("/api/checkers/move")
+def checkers_move(m: CheckersMove, x_init_data: str = Header()):
+    uid = auth(x_init_data)
+    if len(m.path) < 2 or any(i < 0 or i > 63 for i in m.path):
+        raise HTTPException(400, "Yurish noto'g'ri")
+    now = int(time.time())
+    with db() as c:
+        g = c.execute("SELECT * FROM checkers_games WHERE id=%s FOR UPDATE", (m.id,)).fetchone()
+        if not g or g["status"] != "playing" or uid not in (g["p1"], g["p2"]):
+            raise HTTPException(400, "O'yin faol emas")
+        if g["turn"] != uid:
+            raise HTTPException(400, "Hozir raqibning navbati")
+        board = g["board"]
+        side = "r" if uid == g["p1"] else "b"
+        legal = checkers_legal_moves(board, side)
+        move = next((x for x in legal if x["path"] == m.path), None)
+        if not move:
+            raise HTTPException(400, "Bu yurish qoidaga mos emas yoki majburiy urishni bajarmadingiz")
+        board = checkers_apply_move(board, move)
+        next_uid = g["p2"] if uid == g["p1"] else g["p1"]
+        opp_side = "b" if side == "r" else "r"
+        opp_pieces = any(x and x.lower() == opp_side for x in board)
+        opp_moves = checkers_legal_moves(board, opp_side) if opp_pieces else []
+        if not opp_pieces or not opp_moves:
+            c.execute("UPDATE checkers_games SET board=%s,move_no=move_no+1,updated_at=%s WHERE id=%s",
+                      (json.dumps(board), now, m.id))
+            g["board"] = board
+            _checkers_finish(c, g, uid)
+        else:
+            c.execute("UPDATE checkers_games SET board=%s,turn=%s,move_no=move_no+1,updated_at=%s WHERE id=%s",
+                      (json.dumps(board), next_uid, now, m.id))
+            g.update(board=board, turn=next_uid, move_no=g["move_no"]+1)
+    return checkers_view(g, uid)
+
+
+@app.post("/api/checkers/cancel")
+def checkers_cancel(m: CheckersAction, x_init_data: str = Header()):
+    uid = auth(x_init_data)
+    with db() as c:
+        g = c.execute("SELECT * FROM checkers_games WHERE id=%s FOR UPDATE", (m.id,)).fetchone()
+        if not g or g["p1"] != uid or g["status"] != "waiting":
+            raise HTTPException(400, "Kutishdagi o'yin topilmadi")
+        c.execute("UPDATE users SET balance=balance+%s WHERE id=%s", (g["stake"], uid))
+        c.execute("UPDATE checkers_games SET status='cancelled',updated_at=%s WHERE id=%s", (int(time.time()), m.id))
+    return {"ok": True}
+
+
+@app.post("/api/checkers/resign")
+def checkers_resign(m: CheckersAction, x_init_data: str = Header()):
+    uid = auth(x_init_data)
+    with db() as c:
+        g = c.execute("SELECT * FROM checkers_games WHERE id=%s FOR UPDATE", (m.id,)).fetchone()
+        if not g or g["status"] != "playing" or uid not in (g["p1"], g["p2"]):
+            raise HTTPException(400, "O'yin faol emas")
+        _checkers_finish(c, g, g["p2"] if uid == g["p1"] else g["p1"])
+    return {"ok": True}
+
+
+@app.post("/api/checkers/voice/{game_id}")
+def checkers_voice_send(game_id: int, sig: CheckersSignal, x_init_data: str = Header()):
+    uid = auth(x_init_data)
+    with db() as c:
+        g = c.execute("SELECT p1,p2,status FROM checkers_games WHERE id=%s", (game_id,)).fetchone()
+        if not g or uid not in (g["p1"], g["p2"]) or g["status"] != "playing":
+            raise HTTPException(403, "Ovozli aloqa uchun o'yin faol bo'lishi kerak")
+        other = g["p2"] if uid == g["p1"] else g["p1"]
+        c.execute("INSERT INTO checkers_voice(game_id,from_uid,to_uid,payload,ts) VALUES(%s,%s,%s,%s,%s)",
+                  (game_id, uid, other, json.dumps(sig.payload), int(time.time())))
+    return {"ok": True}
+
+
+@app.get("/api/checkers/voice/{game_id}")
+def checkers_voice_get(game_id: int, after: int = 0, x_init_data: str = Header()):
+    uid = auth(x_init_data)
+    with db() as c:
+        g = c.execute("SELECT p1,p2,status FROM checkers_games WHERE id=%s", (game_id,)).fetchone()
+        if not g or uid not in (g["p1"], g["p2"]):
+            raise HTTPException(403, "Ruxsat yo'q")
+        rows = c.execute("SELECT id,payload FROM checkers_voice WHERE game_id=%s AND to_uid=%s AND id>%s ORDER BY id LIMIT 50",
+                         (game_id, uid, after)).fetchall()
+    return [{"id": r["id"], "payload": r["payload"]} for r in rows]
 
 
 MOVES = {"rock": "scissors", "scissors": "paper", "paper": "rock"}

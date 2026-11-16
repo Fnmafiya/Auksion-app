@@ -81,6 +81,21 @@ button.ghost{background:var(--card2);color:var(--ink);box-shadow:none;border:1px
 .sc{padding:14px;margin:0}
 .sc b{display:block;font-size:22px;color:var(--gold)}
 .sc span{font-size:12px;color:var(--mute)}
+
+/* Shashka oynasi */
+.game-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:10px 0 14px}
+.game-board{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));width:min(100%,480px);margin:12px auto;border:5px solid #7a5525;border-radius:12px;overflow:hidden;box-shadow:0 12px 32px #0008;touch-action:manipulation}
+.sq{aspect-ratio:1;border:0;border-radius:0;padding:0;box-shadow:none;display:grid;place-items:center;position:relative;min-width:0}
+.sq.light{background:#f0d9b5}.sq.dark{background:#81512f}
+.sq.pick{outline:3px solid #ffd45e;outline-offset:-4px;z-index:1}
+.sq.target:after{content:"";width:28%;height:28%;border-radius:50%;background:#43df9a;box-shadow:0 0 0 3px #123b2c;position:absolute}
+.piece{width:76%;height:76%;border-radius:50%;display:grid;place-items:center;box-shadow:inset 0 4px 4px #ffffff45,inset 0 -5px 7px #0008,0 3px 5px #0008;border:2px solid #ffffff50;pointer-events:none}
+.piece.red{background:radial-gradient(circle at 35% 25%,#ff9c9c,#c62828 70%)}
+.piece.black{background:radial-gradient(circle at 35% 25%,#777,#171a22 70%)}
+.piece.king:after{content:"♛";font-size:clamp(14px,4vw,25px);color:#ffd45e;text-shadow:0 1px 3px #000}
+.game-actions{display:flex;gap:8px;flex-wrap:wrap}.game-actions button{flex:1;min-width:110px}
+.voice-state{font-size:13px;color:var(--mute);margin-top:8px}
+
 </style>
 </head>
 <body>
@@ -100,13 +115,7 @@ button.ghost{background:var(--card2);color:var(--ink);box-shadow:none;border:1px
 </div>
 <main id="list"><div class="empty">Yuklanmoqda...</div></main>
 <main id="hist" hidden></main>
-<main id="gameview" hidden>
-  <div class="card" style="text-align:center;padding:32px 16px">
-    <div class="ic" style="width:72px;height:72px;margin:0 auto;border-radius:22px"><svg viewBox="0 0 24 24" style="width:38px;height:38px"><rect x="2" y="7" width="20" height="11" rx="5"/><path d="M7 10v5M4.5 12.5h5"/><circle cx="16" cy="11.5" r=".8"/><circle cx="18.5" cy="14" r=".8"/></svg></div>
-    <div class="title" style="margin-top:8px">O'yinlar bo'limi</div>
-    <div class="state">Tez orada shu yerda o'yinlar paydo bo'ladi.</div>
-  </div>
-</main>
+<main id="gameview" hidden><div id="game-root"></div></main>
 <main id="refview" hidden>
   <button class="back" onclick="show('prof')">← Profil</button>
   <div class="card">
@@ -520,6 +529,7 @@ function show(t) {
   if (t === "task") loadTasks();
   if (t === "rate") loadRate();
   if (t === "adm") { loadStats(); loadAdminList(); loadAdminTasks(); }
+  if (t === "game" && !checkerGame) renderGameHome();
 }
 
 async function reqTopup(btn) {
@@ -553,6 +563,112 @@ async function loadHist() {
     }).join("");
   } catch (e) { box.innerHTML = '<div class="empty">' + esc(e.message) + "</div>"; }
 }
+
+
+// --- Shashka: onlayn o'yin va WebRTC ovozli aloqa ---
+let checkerGame = null, checkerBusy = false, checkerPath = [], checkerCandidates = [];
+let checkerPoll = null, voicePoll = null, voicePc = null, voiceStream = null;
+let voiceLastId = 0, voiceMuted = false, voicePendingCandidates = [];
+
+function gameHomeHtml(){return `
+  <div class="game-head"><div><div class="title">♟ Shashka</div><div class="state">Raqib bilan jonli o'yin · 8×8 doska</div></div><span class="chip ok">2 o'yinchi</span></div>
+  <div class="card">
+    <div class="title">Stavkani tanlang</div>
+    <div class="state">Raqib aynan shu miqdordagi coin bilan qo'shiladi. 2 dan 1 000 000 coin gacha.</div>
+    <input id="checkers-stake" type="number" inputmode="numeric" min="2" max="1000000" value="10" style="width:100%;margin:8px 0">
+    <button id="checkers-join" style="width:100%" onclick="joinCheckers()">Raqib izlash</button>
+  </div>
+  <div class="card"><div class="title">O'yin qoidalari</div><div class="state">Majburiy urish · Dama uzoq yuradi · Navbatma-navbat yurish · Yutgan o'yinchi umumiy bankning 75 foizini oladi.</div><div class="state">Misol: 100 + 100 = 200 coin. G'olib 150 coin, platforma 50 coin oladi.</div></div>
+  `;}
+
+function renderGameHome(){document.getElementById('game-root').innerHTML=gameHomeHtml();}
+
+async function joinCheckers(){
+  const input=document.getElementById('checkers-stake');
+  const stake=parseInt(input?.value||'0',10);
+  if(!Number.isInteger(stake)||stake<2||stake>1000000)return toast('Stavka 2–1 000 000 coin oralig‘ida bo‘lsin');
+  const btn=document.getElementById('checkers-join'); if(btn)btn.disabled=true;
+  try{checkerGame=await api('/api/checkers/join',{stake});checkerPath=[];renderCheckers();startCheckerPolling();}
+  catch(e){toast(e.message);if(btn)btn.disabled=false;}
+}
+
+function startCheckerPolling(){clearInterval(checkerPoll);checkerPoll=setInterval(refreshCheckers,2200);}
+async function refreshCheckers(){if(!checkerGame||checkerBusy)return;try{const g=await api('/api/checkers/'+checkerGame.id);checkerGame=g;renderCheckers();if(g.status!=='playing'){clearInterval(checkerPoll);if(g.status==='done'){toast(g.winner===g.opponent?'Siz yutqazdingiz':'O‘yin yakunlandi');}if(g.status==='expired'||g.status==='cancelled'){toast('O‘yin bekor qilindi, stavka qaytarildi');}stopVoice(false);}}catch(e){console.warn(e);}}
+
+function renderCheckers(){
+  const root=document.getElementById('game-root'); if(!checkerGame){renderGameHome();return;}
+  const g=checkerGame;
+  if(g.status==='waiting'){
+    root.innerHTML=`<button class="back" onclick="leaveCheckers()">← O'yinlardan qaytish</button><div class="card" style="text-align:center;padding:30px 16px"><div style="font-size:42px">♟</div><div class="title">Raqib qidirilmoqda...</div><div class="state">${g.stake.toLocaleString('uz-UZ')} coin stavka band qilindi. Xuddi shu stavkadagi raqib qo'shilishini kuting.</div><div class="chip ok">Kutish davom etmoqda</div><button class="ghost" style="width:100%;margin-top:16px" onclick="cancelCheckers()">Qidiruvni bekor qilish</button></div>`;return;
+  }
+  if(g.status!=='playing'){
+    const won=g.winner===g.opponent?false:g.winner!==null;
+    root.innerHTML=`<div class="card" style="text-align:center;padding:28px 16px"><div style="font-size:42px">${won?'🏆':'♟'}</div><div class="title">${g.winner===null?'O\'yin yakunlandi':won?'Tabriklaymiz, yutdingiz!':'Bu safar raqib yutdi'}</div><div class="state">${g.winner===null?'Stavkalar qaytarildi':(won?'Sizga '+g.winner_prize.toLocaleString('uz-UZ')+' coin berildi':'Keyingi safar omad!')}</div><button style="width:100%" onclick="resetCheckers()">O'yinlarga qaytish</button></div>`;return;
+  }
+  const myTurn=g.turn===myTelegramId();
+  const board=g.board||[]; const orient=g.mine==='black';
+  let cells='';
+  for(let vr=0;vr<8;vr++)for(let vc=0;vc<8;vc++){
+    const idx=orient?(7-vr)*8+(7-vc):vr*8+vc;const piece=board[idx];
+    const selected=checkerPath.length&&checkerPath[checkerPath.length-1]===idx;
+    const nexts=checkerCandidates.filter(m=>m.path.length>checkerPath.length&&m.path.slice(0,checkerPath.length).every((v,i)=>v===checkerPath[i])).map(m=>m.path[checkerPath.length]);
+    const target=nexts.includes(idx);
+    const klass=(Math.floor(idx/8)+idx%8)%2?'dark':'light';
+    cells+=`<button class="sq ${klass} ${selected?'pick':''} ${target?'target':''}" onclick="checkerSquare(${idx})" aria-label="Katak ${idx+1}">${piece?`<span class="piece ${piece.toLowerCase()==='r'?'red':'black'} ${piece===piece.toUpperCase()?'king':''}"></span>`:''}</button>`;
+  }
+  const status=myTurn?'Sizning navbatingiz':'Raqib yurmoqda';
+  root.innerHTML=`<button class="back" onclick="leaveCheckers()">← O'yinlardan chiqish</button>
+    <div class="card" style="padding:12px"><div class="game-head"><div><div class="title">${status}</div><div class="state">${g.mine==='red'?'Siz qizil donalarda o‘ynaysiz':'Siz qora donalarda o‘ynaysiz'} · Raqib ID: ${g.opponent}</div></div><span class="time">${g.stake.toLocaleString('uz-UZ')} coin</span></div>
+    <div class="game-board">${cells}</div>
+    <div class="state" style="text-align:center">${myTurn?'Donangizni, keyin yurish kataklarini bosing.':'Raqibning yurishi kutilmoqda...'}</div>
+    <div class="game-actions"><button class="ghost" onclick="startVoice()">🎙 Mikrofon</button><button class="ghost" onclick="toggleMute()" id="voice-mute" disabled>Ovozni o'chirish</button><button class="ghost" onclick="resignCheckers()">Taslim bo'lish</button></div><div id="voice-status" class="voice-state">Ovozli aloqa ulanmagan</div>
+    <div class="state" style="margin-top:10px">Bank: ${(g.pot||g.stake*2).toLocaleString('uz-UZ')} coin · G'olib: ${g.winner_prize.toLocaleString('uz-UZ')} coin · Komissiya: 25%</div></div>`;
+}
+
+function myTelegramId(){return Number((tg.initDataUnsafe&&tg.initDataUnsafe.user&&tg.initDataUnsafe.user.id)||0);}
+async function checkerSquare(idx){
+  if(!checkerGame||checkerGame.status!=='playing'||checkerGame.turn!==myTelegramId())return;
+  const board=checkerGame.board;const piece=board[idx];const side=checkerGame.mine==='red'?'r':'b';
+  if(!checkerPath.length){if(piece&&piece.toLowerCase()===side){checkerCandidates=checkerGame.legal_moves||[];const available=checkerCandidates.some(m=>m.path[0]===idx);if(available){checkerPath=[idx];renderCheckers();}}return;}
+  const prefix=checkerPath;
+  const matches=checkerCandidates.filter(m=>m.path.length>prefix.length&&prefix.every((v,i)=>m.path[i]===v)&&m.path[prefix.length]===idx);
+  if(!matches.length){if(piece&&piece.toLowerCase()===side){checkerPath=[idx];checkerCandidates=checkerGame.legal_moves||[];if(!checkerCandidates.some(m=>m.path[0]===idx))checkerPath=[];renderCheckers();}else{checkerPath=[];renderCheckers();}return;}
+  checkerPath=[...checkerPath,idx];const complete=matches.find(m=>m.path.length===checkerPath.length&&m.path.every((v,i)=>v===checkerPath[i]));
+  checkerCandidates=matches; if(complete){checkerBusy=true;try{checkerGame=await api('/api/checkers/move',{id:checkerGame.id,path:checkerPath});checkerPath=[];checkerCandidates=[];renderCheckers();}catch(e){toast(e.message);checkerPath=[];await refreshCheckers();}finally{checkerBusy=false;}}else renderCheckers();
+}
+async function cancelCheckers(){if(!checkerGame)return;try{await api('/api/checkers/cancel',{id:checkerGame.id});checkerGame=null;clearInterval(checkerPoll);renderGameHome();await load();}catch(e){toast(e.message);}}
+async function leaveCheckers(){if(checkerGame&&checkerGame.status==='waiting')return cancelCheckers();if(checkerGame&&checkerGame.status==='playing')return resignCheckers();resetCheckers();}
+function resetCheckers(){checkerGame=null;checkerPath=[];checkerCandidates=[];clearInterval(checkerPoll);stopVoice(false);renderGameHome();}
+async function resignCheckers(){if(!checkerGame)return;ask('Taslim bo‘lsangiz, raqib g‘olib bo‘ladi. Davom etasizmi?',async()=>{try{await api('/api/checkers/resign',{id:checkerGame.id});await refreshCheckers();await load();}catch(e){toast(e.message);}});}
+
+function setVoiceStatus(t){const el=document.getElementById('voice-status');if(el)el.textContent=t;}
+async function ensurePeer(){
+  if(voicePc)return voicePc;
+  voiceStream=await navigator.mediaDevices.getUserMedia({audio:true});
+  voicePc=new RTCPeerConnection({iceServers:[{urls:'stun:stun.l.google.com:19302'},{urls:'stun:stun1.l.google.com:19302'}]});
+  voiceStream.getTracks().forEach(track=>voicePc.addTrack(track,voiceStream));
+  voicePc.ontrack=e=>{let audio=document.getElementById('remote-voice');if(!audio){audio=document.createElement('audio');audio.id='remote-voice';audio.autoplay=true;audio.playsInline=true;document.body.appendChild(audio);}audio.srcObject=e.streams[0];};
+  voicePc.onicecandidate=e=>{if(e.candidate&&checkerGame)api('/api/checkers/voice/'+checkerGame.id,{payload:{type:'candidate',candidate:e.candidate.toJSON()}}).catch(()=>{});};
+  voicePc.onconnectionstatechange=()=>setVoiceStatus('Ovoz: '+voicePc.connectionState);
+  document.getElementById('voice-mute')?.removeAttribute('disabled');
+  return voicePc;
+}
+async function startVoice(){
+  if(!checkerGame||checkerGame.status!=='playing')return toast('Avval raqib bilan o‘yin boshlansin');
+  if(!navigator.mediaDevices?.getUserMedia||!window.RTCPeerConnection)return toast('Bu qurilmada mikrofon qo‘llab-quvvatlanmaydi');
+  try{const pc=await ensurePeer();if(!voicePoll)voicePoll=setInterval(pollVoice,1200);if(checkerGame.mine==='red'){const offer=await pc.createOffer();await pc.setLocalDescription(offer);await api('/api/checkers/voice/'+checkerGame.id,{payload:{type:'offer',sdp:pc.localDescription}});setVoiceStatus('Qo‘ng‘iroq taklifi yuborildi, raqib ulanmoqda...');}else{setVoiceStatus('Mikrofon tayyor. Qizil donadagi o‘yinchi qo‘ng‘iroq qilishi kutilmoqda...');}pollVoice();}catch(e){setVoiceStatus('Mikrofon xatosi: '+e.message);toast('Mikrofonga ruxsat bering');}
+}
+async function pollVoice(){
+  if(!checkerGame||!voicePc)return;
+  try{const signals=await api('/api/checkers/voice/'+checkerGame.id+'?after='+voiceLastId);for(const sig of signals){voiceLastId=Math.max(voiceLastId,sig.id);const p=sig.payload;
+    if(p.type==='offer'){const pc=await ensurePeer();await pc.setRemoteDescription(new RTCSessionDescription(p.sdp));for(const c of voicePendingCandidates)await pc.addIceCandidate(new RTCIceCandidate(c));voicePendingCandidates=[];const answer=await pc.createAnswer();await pc.setLocalDescription(answer);await api('/api/checkers/voice/'+checkerGame.id,{payload:{type:'answer',sdp:pc.localDescription}});setVoiceStatus('Ovozli aloqa ulanmoqda...');}
+    else if(p.type==='answer'&&voicePc.signalingState!=='stable'){await voicePc.setRemoteDescription(new RTCSessionDescription(p.sdp));for(const c of voicePendingCandidates)await voicePc.addIceCandidate(new RTCIceCandidate(c));voicePendingCandidates=[];}
+    else if(p.type==='candidate'){if(voicePc.remoteDescription)await voicePc.addIceCandidate(new RTCIceCandidate(p.candidate));else voicePendingCandidates.push(p.candidate);}
+    else if(p.type==='hangup'){stopVoice(false);setVoiceStatus('Raqib qo‘ng‘iroqni tugatdi');}
+  }}catch(e){console.warn('voice signal',e);}
+}
+function toggleMute(){if(!voiceStream)return;voiceMuted=!voiceMuted;voiceStream.getAudioTracks().forEach(t=>t.enabled=!voiceMuted);const b=document.getElementById('voice-mute');if(b)b.textContent=voiceMuted?'Mikrofonni yoqish':'Ovozni o‘chirish';}
+function stopVoice(send=true){if(send&&checkerGame)api('/api/checkers/voice/'+checkerGame.id,{payload:{type:'hangup'}}).catch(()=>{});clearInterval(voicePoll);voicePoll=null;if(voicePc){voicePc.close();voicePc=null;}if(voiceStream){voiceStream.getTracks().forEach(t=>t.stop());voiceStream=null;}voicePendingCandidates=[];voiceMuted=false;const a=document.getElementById('remote-voice');if(a)a.remove();}
 
 load();
 setInterval(tick, 1000);
