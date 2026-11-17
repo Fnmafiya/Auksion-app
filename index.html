@@ -118,14 +118,30 @@ button.ghost{background:var(--card2);color:var(--ink);box-shadow:none;border:1px
 .rules-sheet{width:min(100%,520px);max-height:82vh;overflow:auto;background:#121d34;border:1px solid var(--line);border-radius:24px;padding:20px;box-shadow:0 20px 70px #000b}
 .rules-sheet h3{margin:0 0 12px;font-size:20px}
 .rules-sheet li{margin:8px 0;color:#d3dced}
-.pool-preview{width:100%;height:12px;border-radius:99px;background:linear-gradient(90deg,#a66b35,#e5bb76,#a66b35);margin:10px 0}
-.pool-table-wrap{width:100%;padding:8px;border-radius:18px;background:linear-gradient(135deg,#8d552b,#3b2114);box-shadow:0 12px 28px #0008;margin:12px 0}
-#pool-canvas{display:block;width:100%;height:auto;aspect-ratio:2/1;border-radius:12px;touch-action:none;background:#07583d}
-.pool-hud{display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap}
-.pool-clock-row{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:10px 0}.pool-clock{background:var(--panel2,rgba(255,255,255,.06));border:1px solid var(--line,rgba(255,255,255,.1));border-radius:12px;padding:9px 6px;text-align:center}.pool-clock small{display:block;font-size:9px;letter-spacing:.6px;color:var(--mute)}.pool-clock strong{display:block;font-size:20px;font-variant-numeric:tabular-nums;margin-top:3px}@media(max-width:360px){.pool-clock strong{font-size:16px}.pool-clock small{font-size:8px}}
-.pool-hud .chip{padding:7px 10px}
-.pool-help{font-size:12px;color:var(--mute);text-align:center;margin:6px 0 0}
-.pool-action{display:flex;gap:8px}.pool-action button{flex:1}
+.pl{display:grid;gap:10px}
+.pl-bar{display:grid;grid-template-columns:1fr auto 1fr;gap:8px;align-items:stretch}
+.pl-p{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:16px;background:var(--card);border:1px solid var(--line);min-width:0;transition:border-color .2s,box-shadow .2s,background .2s}
+.pl-p.r{justify-content:flex-end;text-align:right}
+.pl-p.on{border-color:var(--gold);background:rgba(255,200,61,.09);box-shadow:0 0 0 3px rgba(255,200,61,.14)}
+.pl-av{flex:none;width:34px;height:34px;border-radius:50%;display:grid;place-items:center;font-weight:800;background:var(--card2);color:var(--mute)}
+.pl-p.on .pl-av{background:var(--g);color:#231700}
+.pl-i{min-width:0;display:grid;gap:3px}.pl-i b{font-size:14px}.pl-i span{font-size:11px;color:var(--mute)}
+.pl-dots{display:flex;gap:3px;flex-wrap:wrap}.pl-p.r .pl-dots{justify-content:flex-end}
+.pl-dots .d{width:9px;height:9px;border-radius:50%;background:var(--c,#556);box-shadow:inset -1px -1px 2px rgba(0,0,0,.4),inset 1px 1px 2px rgba(255,255,255,.35)}
+.pl-dots .d.off{opacity:.18;filter:grayscale(1)}.pl-dots .d.u{background:var(--card2);box-shadow:none}
+.pl-mid{display:grid;align-content:center;justify-items:center;padding:0 4px}
+.pl-mid small{font-size:10px;color:var(--mute)}
+.pl-mid strong{font-size:24px;font-variant-numeric:tabular-nums;line-height:1.1}
+.pl-mid em{font-style:normal;font-size:11px;color:var(--mute);font-variant-numeric:tabular-nums}
+.pool-table-wrap{border-radius:22px;overflow:hidden;line-height:0;box-shadow:0 18px 40px rgba(0,0,0,.5),0 0 0 1px rgba(255,255,255,.08)}
+#pool-canvas{display:block;width:100%;height:auto;aspect-ratio:2/1;touch-action:none;cursor:crosshair}
+.pl-pw{height:6px;border-radius:99px;background:var(--card2);overflow:hidden}
+.pl-pw i{display:block;height:100%;width:0;background:linear-gradient(90deg,#3ddc97,#ffc83d 60%,#ff6b6b)}
+.pl-msg{text-align:center;font-size:13px;color:var(--mute);min-height:20px}
+.pl-msg.on{color:var(--ink)}.pl-msg b{color:var(--gold)}
+.pl-foot{display:flex;gap:6px;justify-content:center;flex-wrap:wrap}
+.pl-res{width:100%}
+@media(max-width:360px){.pl-mid strong{font-size:19px}.pl-i b{font-size:13px}.pl-av{width:28px;height:28px}}
 .stake-label{display:block;color:#dce5f5;font-size:13px;font-weight:700;margin:12px 0 6px}
 .stake-input{width:100%;font-size:20px;font-weight:800;text-align:center;letter-spacing:.4px}
 .stake-submit{width:100%;margin-top:10px;padding:15px;border-radius:16px;font-size:15px}
@@ -609,7 +625,7 @@ function gameHomeHtml(){return `
   <div class="games-intro"><div><div class="title">O'yinlar</div><div class="state">Raqib bilan bellashing va yuting</div></div><span class="chip ok">M-COIN</span></div>
   <div class="game-apps">
     <button class="game-app checkers" onclick="openCheckersApp()"><span class="game-tag">ONLINE</span><div class="game-art">♟</div><div class="game-app-name">SHASHKA</div><div class="game-app-meta">2 o'yinchi · Jonli duel</div></button>
-    <button class="game-app pool" onclick="openPoolApp()"><span class="game-tag">ONLINE</span><div class="game-art">🎱</div><div class="game-app-name">8 BALL POOL</div><div class="game-app-meta">2 o'yinchi · Billiard duel</div></button>
+    <button class="game-app pool" onclick="openPoolApp()"><span class="game-tag">ONLINE</span><div class="game-art"><svg viewBox="0 0 64 64" width="58" height="58"><defs><radialGradient id="b8" cx=".35" cy=".3" r=".8"><stop offset="0" stop-color="#5a5f6b"/><stop offset=".5" stop-color="#15161b"/><stop offset="1" stop-color="#000"/></radialGradient></defs><circle cx="32" cy="32" r="29" fill="url(#b8)"/><circle cx="32" cy="30" r="12" fill="#fff"/><text x="32" y="35.5" text-anchor="middle" font-size="16" font-weight="800" fill="#111" font-family="system-ui">8</text><ellipse cx="22" cy="16" rx="8" ry="4.5" fill="#fff" opacity=".35" transform="rotate(-30 22 16)"/></svg></div><div class="game-app-name">8 BALL POOL</div><div class="game-app-meta">2 o'yinchi · Billiard duel</div></button>
   </div>
   <div class="game-detail" id="checkers-lobby"><div class="game-detail-head"><div><div class="title">Shashka</div><div class="state">Bir xil stavkali raqib toping va o'yinni boshlang.</div></div><button class="help-dot" aria-label="Shashka qoidalari" onclick="showCheckersRules()">?</button></div>
     <label class="stake-label" for="checkers-stake">Stavka miqdori (M-COIN)</label>
@@ -717,7 +733,9 @@ function stopVoice(send=true){if(send&&checkerGame)api('/api/checkers/voice/'+ch
 
 
 // --- 8 Ball Pool: real-time turn-based billiard, server-calculated shots ---
-let poolGame=null,poolPoll=null,poolBusy=false,poolDrag=null,poolClockInterval=null,poolClockExpired=false;
+let poolGame=null,poolPoll=null,poolBusy=false,poolDrag=null,poolClockInterval=null,poolClockExpired=false,poolShell=null,poolAnim=null,poolFrame=null,poolTable=null;
+const POOL_P=[[28,28],[500,18],[972,28],[28,472],[500,482],[972,472]];
+const POOL_COL=['#f2c21b','#1f5fbf','#d6322e','#6a3aa6','#ef7d1a','#1f8a56','#8c1d2f','#15161b'];
 function openPoolApp(){document.getElementById('pool-lobby')?.scrollIntoView({behavior:'smooth',block:'nearest'});}
 function showPoolRules(){document.getElementById('pool-rules')?.classList.add('open');}
 function hidePoolRules(){document.getElementById('pool-rules')?.classList.remove('open');}
@@ -729,33 +747,212 @@ async function joinPool(){
   catch(e){toast(e.message);if(btn)btn.disabled=false;}
 }
 function startPoolPolling(){clearInterval(poolPoll);poolPoll=setInterval(refreshPool,1700);}
-async function refreshPool(){if(!poolGame||poolBusy||poolDrag)return;try{poolGame=await api('/api/pool/'+poolGame.id);renderPool();if(poolGame.status!=='playing'){clearInterval(poolPoll);if(poolGame.status==='done')load();}}catch(e){console.warn('pool poll',e);}}
-function resetPool(){poolGame=null;poolDrag=null;clearInterval(poolPoll);clearInterval(poolClockInterval);renderGameHome();}
+async function refreshPool(){
+  if(!poolGame||poolBusy||poolDrag)return;
+  try{
+    const prev=poolGame,next=await api('/api/pool/'+prev.id);
+    if(poolBusy||poolDrag)return;
+    poolGame=next;
+    if(prev.status==='playing'&&next.status!=='waiting'&&prev.state&&next.state&&next.state.shot!==prev.state.shot){
+      poolBusy=true;
+      try{await playPoolFrames(poolTweenFrames(prev.state.balls,next.state.balls));}finally{poolBusy=false;}
+    }
+    renderPool();
+    if(next.status!=='playing'){clearInterval(poolPoll);if(next.status==='done')load();}
+  }catch(e){console.warn('pool poll',e);}
+}
+function resetPool(){poolGame=null;poolDrag=null;poolShell=null;poolAnim=null;poolFrame=null;clearInterval(poolPoll);clearInterval(poolClockInterval);renderGameHome();}
 async function cancelPool(){if(!poolGame)return;try{await api('/api/pool/cancel',{id:poolGame.id});resetPool();await load();}catch(e){toast(e.message);}}
 async function resignPool(){if(!poolGame)return;ask('Taslim bo‘lsangiz, raqib g‘olib bo‘ladi. Davom etasizmi?',async()=>{try{await api('/api/pool/resign',{id:poolGame.id});await refreshPool();await load();}catch(e){toast(e.message);}});}
+
 function renderPool(){
  clearInterval(poolClockInterval);poolClockExpired=false;
  const root=document.getElementById('game-root');if(!poolGame){renderGameHome();return;}const g=poolGame;
- if(g.status==='waiting'){root.innerHTML=`<button class="back" onclick="cancelPool()">← Bekor qilish</button><div class="card" style="text-align:center;padding:30px 16px"><div style="font-size:48px">🎱</div><div class="title">Raqib qidirilmoqda...</div><div class="state">${g.stake.toLocaleString('uz-UZ')} coin stavka band qilindi. Xuddi shu stavkani qo'ygan raqib kutilmoqda.</div><div class="chip ok">Qidiruv faol</div><button class="ghost" style="width:100%;margin-top:14px" onclick="cancelPool()">Qidiruvni bekor qilish</button></div>`;return;}
- if(g.status!=='playing'){const won=g.winner===myTelegramId();root.innerHTML=`<div class="card" style="text-align:center;padding:30px 16px"><div style="font-size:48px">${won?'🏆':'🎱'}</div><div class="title">${won?'Tabriklaymiz, yutdingiz!':g.winner?'Bu safar raqib yutdi':'O‘yin yakunlandi'}</div><div class="state">${won?'Sizga '+g.winner_prize.toLocaleString('uz-UZ')+' coin berildi':'Keyingi safar omad!'}</div><button style="width:100%" onclick="resetPool()">O‘yinlarga qaytish</button></div>`;return;}
- const myTurn=g.turn===myTelegramId();const groups=g.state.groups||{};const mine=g.mine==='p1'?groups.p1:groups.p2;
- root.innerHTML=`<button class="back" onclick="leavePool()">← O'yinlardan chiqish</button><div class="card" style="padding:12px"><div class="pool-hud"><div><div class="title">🎱 8 Ball Pool</div><div class="state">${myTurn?'Sizning zarbangiz':'Raqib zarba bermoqda'} · ${mine? (mine==='solids'?'To‘liq sharlar':'Yo‘lli sharlar'):'Guruh hali belgilanmagan'}</div></div><span class="time">${g.stake.toLocaleString('uz-UZ')} coin</span></div><div class="pool-clock-row"><div class="pool-clock"><small>NAVBAT VAQTI</small><strong id="pool-turn-clock">${fmtPoolTime(g.turn_left)}</strong></div><div class="pool-clock"><small>UMUMIY VAQT</small><strong id="pool-game-clock">${fmtPoolTime(g.game_left)}</strong></div><div class="pool-clock"><small>VAQT JARIMALARI</small><strong>${g.my_timeouts||0}/3</strong></div></div><div class="pool-table-wrap"><canvas id="pool-canvas" width="1000" height="500"></canvas></div><div class="pool-hud"><span class="chip ok">Bank ${g.pot.toLocaleString('uz-UZ')}</span><span class="chip">Sizga ${g.winner_prize.toLocaleString('uz-UZ')} coin</span><span class="chip">Komissiya 10%</span></div><div class="pool-help">Oq shar ortidan barmog‘ingizni orqaga tortib, qo‘yib yuboring — zarba beriladi. Navbatda 30 soniya, butun o‘yinda 15 daqiqa.</div><div class="pool-action" style="margin-top:12px"><button class="ghost" onclick="resignPool()">Taslim bo‘lish</button></div></div>`;
- drawPool();attachPoolCanvas();startPoolClock(g);
+ if(g.status==='waiting'){poolShell=null;root.innerHTML=`<button class="back" onclick="cancelPool()">← Bekor qilish</button><div class="card" style="text-align:center;padding:30px 16px"><div style="font-size:48px">🎱</div><div class="title">Raqib qidirilmoqda...</div><div class="state">${g.stake.toLocaleString('uz-UZ')} coin stavka band qilindi. Xuddi shu stavkani qo'ygan raqib kutilmoqda.</div><div class="chip ok">Qidiruv faol</div><button class="ghost" style="width:100%;margin-top:14px" onclick="cancelPool()">Qidiruvni bekor qilish</button></div>`;return;}
+ if(g.status!=='playing'){poolShell=null;const won=g.winner===myTelegramId();root.innerHTML=`<div class="card" style="text-align:center;padding:30px 16px"><div style="font-size:48px">${won?'🏆':'🎱'}</div><div class="title">${won?'Tabriklaymiz, yutdingiz!':g.winner?'Bu safar raqib yutdi':'O‘yin yakunlandi'}</div><div class="state">${won?'Sizga '+g.winner_prize.toLocaleString('uz-UZ')+' coin berildi':'Keyingi safar omad!'}</div><button style="width:100%" onclick="resetPool()">O‘yinlarga qaytish</button></div>`;return;}
+ if(poolShell!==g.id||!document.getElementById('pool-canvas')){buildPoolShell(root);poolShell=g.id;}
+ poolFrame=null;updatePoolHud(g);drawPool();startPoolClock(g);
+}
+function buildPoolShell(root){
+ root.innerHTML=`<button class="back" onclick="leavePool()">← O'yinlardan chiqish</button><div class="pl">
+ <div class="pl-bar">
+  <div class="pl-p" id="pl-me"><div class="pl-av">S</div><div class="pl-i"><b>Siz</b><span id="pl-me-g"></span><div class="pl-dots" id="pl-me-d"></div></div></div>
+  <div class="pl-mid"><small>Navbat</small><strong id="pool-turn-clock">00:30</strong><em>Umumiy <span id="pool-game-clock">15:00</span></em></div>
+  <div class="pl-p r" id="pl-op"><div class="pl-i"><b>Raqib</b><span id="pl-op-g"></span><div class="pl-dots" id="pl-op-d"></div></div><div class="pl-av">R</div></div>
+ </div>
+ <div class="pool-table-wrap"><canvas id="pool-canvas" width="2000" height="1000"></canvas></div>
+ <div class="pl-pw"><i id="pool-pw"></i></div>
+ <div class="pl-msg" id="pl-msg"></div>
+ <div class="pl-foot"><span class="chip ok" id="pl-pot"></span><span class="chip" id="pl-prize"></span><span class="chip" id="pl-to"></span></div>
+ <button class="ghost pl-res" onclick="resignPool()">Taslim bo‘lish</button></div>`;
+ attachPoolCanvas();
+}
+function updatePoolHud(g){
+ const $=id=>document.getElementById(id),me=g.turn===myTelegramId(),gr=g.state.groups||{},mg=g.mine==='p1'?gr.p1:gr.p2,og=g.mine==='p1'?gr.p2:gr.p1;
+ $('pl-me').classList.toggle('on',me);$('pl-op').classList.toggle('on',!me);
+ const nm=v=>v==='solids'?'To‘liq sharlar':v==='stripes'?'Yo‘lli sharlar':'Guruh belgilanmagan';
+ $('pl-me-g').textContent=nm(mg);$('pl-op-g').textContent=nm(og);
+ const on=new Set((g.state.balls||[]).filter(b=>b.on).map(b=>b.n));
+ const dots=gp=>{if(!gp)return '<i class="d u"></i>'.repeat(7);const base=gp==='solids'?1:9;let h='';for(let k=0;k<7;k++){const n=base+k;h+=`<i class="d${on.has(n)?'':' off'}" style="--c:${poolBallColor(n)}"></i>`;}return h;};
+ $('pl-me-d').innerHTML=dots(mg);$('pl-op-d').innerHTML=dots(og);
+ const m=$('pl-msg');m.classList.toggle('on',me);
+ m.innerHTML=me?'<b>Sizning zarbangiz.</b> Oq shar ortidan barmog‘ingizni orqaga tortib, qo‘yib yuboring.':'Raqib zarbaga tayyorlanmoqda…';
+ $('pl-pot').textContent='Bank '+g.pot.toLocaleString('uz-UZ');
+ $('pl-prize').textContent='Sizga '+g.winner_prize.toLocaleString('uz-UZ')+' coin';
+ $('pl-to').textContent='Vaqt jarimasi '+(g.my_timeouts||0)+'/3';
 }
 function fmtPoolTime(sec){sec=Math.max(0,Math.floor(sec||0));return String(Math.floor(sec/60)).padStart(2,'0')+':'+String(sec%60).padStart(2,'0');}
-function startPoolClock(g){let turnEnd=Date.now()+Math.max(0,g.turn_left||0)*1000,gameEnd=Date.now()+Math.max(0,g.game_left||0)*1000;const tick=()=>{const t=Math.max(0,Math.ceil((turnEnd-Date.now())/1000)),all=Math.max(0,Math.ceil((gameEnd-Date.now())/1000));const a=document.getElementById('pool-turn-clock'),b=document.getElementById('pool-game-clock');if(a)a.textContent=fmtPoolTime(t);if(b)b.textContent=fmtPoolTime(all);if((t===0||all===0)&&!poolClockExpired){poolClockExpired=true;refreshPool();}};tick();poolClockInterval=setInterval(tick,250);}
+function startPoolClock(g){let turnEnd=Date.now()+Math.max(0,g.turn_left||0)*1000,gameEnd=Date.now()+Math.max(0,g.game_left||0)*1000;const tick=()=>{const t=Math.max(0,Math.ceil((turnEnd-Date.now())/1000)),all=Math.max(0,Math.ceil((gameEnd-Date.now())/1000));const a=document.getElementById('pool-turn-clock'),b=document.getElementById('pool-game-clock');if(a){a.textContent=fmtPoolTime(t);a.style.color=t<=5?'var(--bad)':'';}if(b)b.textContent=fmtPoolTime(all);if((t===0||all===0)&&!poolClockExpired){poolClockExpired=true;refreshPool();}};tick();poolClockInterval=setInterval(tick,250);}
 function poolCanvasPoint(e,canvas){const r=canvas.getBoundingClientRect();return {x:(e.clientX-r.left)/r.width*1000,y:(e.clientY-r.top)/r.height*500};}
-function attachPoolCanvas(){const c=document.getElementById('pool-canvas');if(!c)return;c.onpointerdown=e=>{if(!poolGame||poolGame.status!=='playing'||poolGame.turn!==myTelegramId()||poolBusy)return;const cue=poolGame.state.balls.find(b=>b.n===0&&b.on);if(!cue)return;const pt=poolCanvasPoint(e,c);if(Math.hypot(pt.x-cue.x,pt.y-cue.y)<85){poolDrag={x:pt.x,y:pt.y};c.setPointerCapture(e.pointerId);drawPool();}};c.onpointermove=e=>{if(poolDrag){poolDrag.current=poolCanvasPoint(e,c);drawPool();}};c.onpointerup=e=>{if(!poolDrag)return;const pt=poolCanvasPoint(e,c),cue=poolGame.state.balls.find(b=>b.n===0&&b.on);const dx=cue.x-pt.x,dy=cue.y-pt.y,dist=Math.hypot(dx,dy);poolDrag=null;if(dist<8){drawPool();return;}sendPoolShot(Math.atan2(dy,dx),Math.min(1,dist/230));};}
-async function sendPoolShot(angle,power){if(!poolGame||poolBusy)return;poolBusy=true;try{poolGame=await api('/api/pool/shot',{id:poolGame.id,angle,power});renderPool();if(poolGame.status!=='playing'){clearInterval(poolPoll);await load();}}catch(e){toast(e.message);}finally{poolBusy=false;}}
-function drawPool(){const c=document.getElementById('pool-canvas');if(!c||!poolGame)return;const x=c.getContext('2d');x.clearRect(0,0,1000,500);
- x.fillStyle='#07583d';x.fillRect(0,0,1000,500);x.strokeStyle='#c99a5a';x.lineWidth=5;x.strokeRect(24,24,952,452);
- const pockets=[[28,28],[500,18],[972,28],[28,472],[500,482],[972,472]];for(const p of pockets){x.beginPath();x.arc(p[0],p[1],27,0,Math.PI*2);x.fillStyle='#080d12';x.fill();x.strokeStyle='#4b2b18';x.lineWidth=4;x.stroke();}
- // cloth highlights and diamonds
- x.strokeStyle='rgba(255,255,255,.07)';x.lineWidth=1;x.beginPath();x.moveTo(500,35);x.lineTo(500,465);x.stroke();for(let i=0;i<7;i++){for(const yy of [13,487]){x.beginPath();x.arc(150+i*116,yy,3,0,Math.PI*2);x.fillStyle='#e6c18b';x.fill();}}
- const balls=poolGame.state.balls||[];for(const b of balls){if(!b.on)continue;x.save();x.beginPath();x.arc(b.x,b.y,10,0,Math.PI*2);x.fillStyle='#f8f7ef';x.fill();x.shadowColor='#0009';x.shadowBlur=5;x.shadowOffsetY=2;x.fill();x.shadowColor='transparent';if(b.n>8&&b.n<16){x.beginPath();x.arc(b.x,b.y,10,Math.PI*.25,Math.PI*1.25);x.fillStyle=poolBallColor(b.n);x.fill();x.beginPath();x.arc(b.x,b.y,10,-Math.PI*.75,Math.PI*.25);x.fillStyle='#f8f7ef';x.fill();}else if(b.n!==0){x.beginPath();x.arc(b.x,b.y,10,0,Math.PI*2);x.fillStyle=poolBallColor(b.n);x.fill();}if(b.n!==0){x.beginPath();x.arc(b.x,b.y,4.8,0,Math.PI*2);x.fillStyle='#fff';x.fill();x.fillStyle='#111';x.font='bold 6px system-ui';x.textAlign='center';x.textBaseline='middle';x.fillText(String(b.n),b.x,b.y+.3);}x.restore();}
- if(poolDrag){const cue=balls.find(b=>b.n===0&&b.on);if(cue){const pt=poolDrag.current||poolDrag,dx=cue.x-pt.x,dy=cue.y-pt.y,mag=Math.hypot(dx,dy)||1;x.save();x.setLineDash([10,8]);x.strokeStyle='#fff8';x.lineWidth=2;x.beginPath();x.moveTo(cue.x,cue.y);x.lineTo(cue.x+dx/mag*250,cue.y+dy/mag*250);x.stroke();x.setLineDash([]);x.strokeStyle='#d6a56b';x.lineWidth=5;x.beginPath();x.moveTo(cue.x-dx/mag*20,cue.y-dy/mag*20);x.lineTo(cue.x-dx/mag*(35+Math.min(100,Math.hypot(dx,dy))),cue.y-dy/mag*(35+Math.min(100,Math.hypot(dx,dy))));x.stroke();x.restore();}}
+
+// --- input: pull back from the cue ball, release to shoot ---
+function poolCue(){return poolGame?.state?.balls?.find(b=>b.n===0&&b.on);}
+function poolCanShoot(){return poolGame&&poolGame.status==='playing'&&poolGame.turn===myTelegramId()&&!poolBusy;}
+function poolDragUi(){const i=document.getElementById('pool-pw'),cue=poolCue();if(!i)return;let p=0;if(poolDrag&&cue){const pt=poolDrag.current;p=Math.min(1,Math.hypot(cue.x-pt.x,cue.y-pt.y)/230);}i.style.width=(p*100)+'%';}
+function attachPoolCanvas(){
+ const c=document.getElementById('pool-canvas');if(!c)return;
+ c.onpointerdown=e=>{if(!poolCanShoot()||!poolCue())return;const pt=poolCanvasPoint(e,c),cue=poolCue();if(Math.hypot(pt.x-cue.x,pt.y-cue.y)>140)return;poolDrag={current:pt};try{c.setPointerCapture(e.pointerId);}catch(_){}poolDragUi();drawPool();};
+ c.onpointermove=e=>{if(!poolDrag)return;poolDrag.current=poolCanvasPoint(e,c);poolDragUi();drawPool();};
+ c.onpointercancel=()=>{poolDrag=null;poolDragUi();drawPool();};
+ c.onpointerup=e=>{if(!poolDrag)return;const cue=poolCue(),pt=poolCanvasPoint(e,c);poolDrag=null;poolDragUi();if(!cue){drawPool();return;}const dx=cue.x-pt.x,dy=cue.y-pt.y,dist=Math.hypot(dx,dy);if(dist<14){drawPool();return;}sendPoolShot(Math.atan2(dy,dx),Math.min(1,dist/230));};
 }
-function poolBallColor(n){return ['#f4d03f','#2368c4','#d52d31','#6838a8','#f18b22','#228b57','#8e1c31','#101116','#f2d34b','#2368c4','#d52d31','#6838a8','#f18b22','#228b57','#8e1c31'][n-1]||'#fff';}
+async function sendPoolShot(angle,power){
+ if(!poolGame||poolBusy)return;poolBusy=true;
+ try{window.Telegram?.WebApp?.HapticFeedback?.impactOccurred?.('medium');}catch(_){}
+ const id=poolGame.id,anim=playPoolFrames(poolSimFrames(poolGame.state.balls,angle,power));
+ try{const [res]=await Promise.all([api('/api/pool/shot',{id,angle,power}),anim]);poolGame=res;}
+ catch(e){poolAnim=null;toast(e.message);}
+ finally{poolBusy=false;}
+ renderPool();
+ if(poolGame&&poolGame.status!=='playing'){clearInterval(poolPoll);await load();}
+}
+
+// --- animation: local replay of the server physics (final state always comes from the server) ---
+function poolSimFrames(src,angle,power){
+ power=Math.max(.08,Math.min(1,power));
+ const balls=src.filter(b=>b.on).map(b=>({n:b.n,x:b.x,y:b.y,vx:0,vy:0})),cue=balls.find(b=>b.n===0);if(!cue)return [];
+ cue.vx=Math.cos(angle)*720*power;cue.vy=Math.sin(angle)*720*power;
+ const dt=1/60,frames=[],sinks=[];
+ const snap=()=>{const out=balls.map(b=>({n:b.n,x:b.x,y:b.y,s:1}));for(const s of sinks){if(s.t<10){const k=s.t/10;out.push({n:s.n,x:s.x+(s.px-s.x)*k,y:s.y+(s.py-s.y)*k,s:1-k});s.t++;}}return out;};
+ for(let step=0;step<900;step++){
+  let moving=false;
+  for(const b of balls){b.x+=b.vx*dt;b.y+=b.vy*dt;b.vx*=.991;b.vy*=.991;if(Math.abs(b.vx)+Math.abs(b.vy)<1.8)b.vx=b.vy=0;if(b.vx||b.vy)moving=true;}
+  for(let i=0;i<balls.length;i++)for(let j=i+1;j<balls.length;j++){
+   const a=balls[i],b=balls[j],dx=b.x-a.x,dy=b.y-a.y,d2=dx*dx+dy*dy;if(d2<=0||d2>=400)continue;
+   const d=Math.sqrt(d2),nx=dx/d,ny=dy/d,over=20-d;
+   a.x-=nx*over/2;a.y-=ny*over/2;b.x+=nx*over/2;b.y+=ny*over/2;
+   const rel=(a.vx-b.vx)*nx+(a.vy-b.vy)*ny;
+   if(rel>0){a.vx-=rel*nx;a.vy-=rel*ny;b.vx+=rel*nx;b.vy+=rel*ny;}
+  }
+  for(const b of balls){if(!POOL_P.some(p=>(b.x-p[0])**2+(b.y-p[1])**2<2304)){
+   if(b.x<35){b.x=35;b.vx=Math.abs(b.vx)*.92;}if(b.x>965){b.x=965;b.vx=-Math.abs(b.vx)*.92;}
+   if(b.y<35){b.y=35;b.vy=Math.abs(b.vy)*.92;}if(b.y>465){b.y=465;b.vy=-Math.abs(b.vy)*.92;}}}
+  for(const b of balls.slice()){const p=POOL_P.find(p=>(b.x-p[0])**2+(b.y-p[1])**2<625);if(p){sinks.push({n:b.n,x:b.x,y:b.y,px:p[0],py:p[1],t:0});balls.splice(balls.indexOf(b),1);}}
+  frames.push(snap());
+  if(!moving)break;
+ }
+ while(sinks.some(s=>s.t<10))frames.push(snap());
+ return frames;
+}
+function poolTweenFrames(a,b){
+ const A=a.filter(o=>o.on),B=new Map(b.filter(o=>o.on).map(o=>[o.n,o])),fr=[];
+ for(let k=1;k<=70;k++){const t=k/70,e=1-Math.pow(1-t,3);
+  fr.push(A.map(o=>{const n=B.get(o.n);if(n)return {n:o.n,x:o.x+(n.x-o.x)*e,y:o.y+(n.y-o.y)*e,s:1};
+   const p=POOL_P.reduce((m,q)=>Math.hypot(o.x-q[0],o.y-q[1])<Math.hypot(o.x-m[0],o.y-m[1])?q:m);
+   return {n:o.n,x:o.x+(p[0]-o.x)*e,y:o.y+(p[1]-o.y)*e,s:t<.7?1:1-(t-.7)/.3};}));}
+ return fr;
+}
+function playPoolFrames(frames){
+ return new Promise(res=>{
+  if(!frames.length)return res();
+  const tok=poolAnim={};let t0=null;
+  const step=ts=>{
+   if(poolAnim!==tok)return res();
+   if(t0===null)t0=ts;
+   const i=Math.floor((ts-t0)/1000*60);
+   if(i>=frames.length){poolFrame=frames[frames.length-1];drawPool();if(poolAnim===tok)poolAnim=null;return res();}
+   poolFrame=frames[i];drawPool();requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+ });
+}
+
+// --- drawing ---
+function poolRR(x,X,Y,W,H,R){x.beginPath();x.moveTo(X+R,Y);x.arcTo(X+W,Y,X+W,Y+H,R);x.arcTo(X+W,Y+H,X,Y+H,R);x.arcTo(X,Y+H,X,Y,R);x.arcTo(X,Y,X+W,Y,R);x.closePath();}
+function poolBuildTable(){
+ const c=document.createElement('canvas');c.width=2000;c.height=1000;const x=c.getContext('2d');x.scale(2,2);
+ let g=x.createLinearGradient(0,0,0,500);g.addColorStop(0,'#6a4128');g.addColorStop(.5,'#47281a');g.addColorStop(1,'#2c180e');
+ poolRR(x,0,0,1000,500,26);x.fillStyle=g;x.fill();
+ x.save();poolRR(x,0,0,1000,500,26);x.clip();
+ for(let i=0;i<60;i++){x.strokeStyle='rgba(255,215,160,'+(.02+((i*37)%7)*.004)+')';x.lineWidth=1;x.beginPath();x.moveTo(0,i*8.4+((i*13)%5));x.lineTo(1000,i*8.4+((i*29)%6));x.stroke();}
+ x.restore();
+ poolRR(x,2,2,996,496,24);x.strokeStyle='rgba(255,210,150,.22)';x.lineWidth=1.5;x.stroke();
+ g=x.createRadialGradient(500,250,60,500,250,560);g.addColorStop(0,'#1a9a72');g.addColorStop(1,'#0a5a42');
+ poolRR(x,25,25,950,450,5);x.fillStyle=g;x.fill();
+ x.save();poolRR(x,25,25,950,450,5);x.clip();x.lineWidth=16;x.strokeStyle='rgba(0,0,0,.3)';x.strokeRect(25,25,950,450);x.restore();
+ x.strokeStyle='rgba(255,255,255,.1)';x.lineWidth=1;x.beginPath();x.moveTo(250,35);x.lineTo(250,465);x.stroke();
+ for(const sx of [250,690]){x.beginPath();x.arc(sx,250,2.6,0,6.3);x.fillStyle='rgba(255,255,255,.28)';x.fill();}
+ const dia=(px,py)=>{x.save();x.translate(px,py);x.rotate(Math.PI/4);x.fillStyle='#ecc86a';x.fillRect(-2.6,-2.6,5.2,5.2);x.restore();};
+ for(const k of [1,2,3]){const px=80+370*k/4;for(const X of [px,1000-px]){dia(X,12.5);dia(X,487.5);}}
+ for(const py of [152,250,348]){dia(12.5,py);dia(987.5,py);}
+ POOL_P.forEach((p,i)=>{const r=i===1||i===4?23:26;
+  x.beginPath();x.arc(p[0],p[1],r+3,0,6.3);x.fillStyle='#1a0f08';x.fill();
+  const pg=x.createRadialGradient(p[0],p[1],2,p[0],p[1],r);pg.addColorStop(0,'#000');pg.addColorStop(1,'#0b1013');
+  x.beginPath();x.arc(p[0],p[1],r,0,6.3);x.fillStyle=pg;x.fill();
+  x.strokeStyle='rgba(236,200,106,.55)';x.lineWidth=1.6;x.stroke();});
+ return c;
+}
+function poolBallColor(n){return POOL_COL[(n-1)%8]||'#fff';}
+function poolDrawBall(x,b){
+ if(b.s<=.02)return;const n=b.n;
+ x.save();x.translate(b.x,b.y);x.scale(b.s,b.s);
+ x.beginPath();x.arc(0,0,10,0,6.2832);x.clip();
+ x.fillStyle=n===0||n>8?'#f7f5ee':poolBallColor(n);x.fillRect(-10,-10,20,20);
+ if(n>8){x.fillStyle=poolBallColor(n);x.fillRect(-10,-5.6,20,11.2);}
+ if(n){x.beginPath();x.arc(0,0,4.7,0,6.2832);x.fillStyle='#fff';x.fill();x.fillStyle='#111';x.font='700 6.4px system-ui';x.textAlign='center';x.textBaseline='middle';x.fillText(String(n),0,.4);}
+ const g=x.createRadialGradient(-3,-3.5,1,0,0,12);g.addColorStop(0,'rgba(255,255,255,.6)');g.addColorStop(.35,'rgba(255,255,255,0)');g.addColorStop(.75,'rgba(0,0,0,.08)');g.addColorStop(1,'rgba(0,0,0,.45)');
+ x.fillStyle=g;x.fillRect(-10,-10,20,20);
+ x.restore();
+}
+function poolDrawAim(x,cue,balls){
+ const pt=poolDrag.current,dx=cue.x-pt.x,dy=cue.y-pt.y,m=Math.hypot(dx,dy);if(m<14)return;
+ const ux=dx/m,uy=dy/m;let tMin=1e9,hit=null;
+ for(const b of balls){if(b===cue||b.s<1)continue;const px=b.x-cue.x,py=b.y-cue.y,pr=px*ux+py*uy;if(pr<=0)continue;const q=px*px+py*py-pr*pr;if(q>=400)continue;const t=pr-Math.sqrt(400-q);if(t<tMin){tMin=t;hit=b;}}
+ let tw=1e9;if(ux>0)tw=Math.min(tw,(965-cue.x)/ux);else if(ux<0)tw=Math.min(tw,(35-cue.x)/ux);if(uy>0)tw=Math.min(tw,(465-cue.y)/uy);else if(uy<0)tw=Math.min(tw,(35-cue.y)/uy);
+ const t=Math.min(tMin,tw),gx=cue.x+ux*t,gy=cue.y+uy*t;
+ x.save();x.lineCap='round';
+ x.setLineDash([2,7]);x.strokeStyle='rgba(255,255,255,.75)';x.lineWidth=2;x.beginPath();x.moveTo(cue.x+ux*12,cue.y+uy*12);x.lineTo(gx,gy);x.stroke();x.setLineDash([]);
+ x.beginPath();x.arc(gx,gy,10,0,6.2832);x.strokeStyle='rgba(255,255,255,.8)';x.lineWidth=1.5;x.stroke();
+ if(hit&&tMin<=tw){const nx=(hit.x-gx)/20,ny=(hit.y-gy)/20;
+  x.strokeStyle='rgba(255,200,61,.9)';x.lineWidth=2;x.beginPath();x.moveTo(hit.x,hit.y);x.lineTo(hit.x+nx*70,hit.y+ny*70);x.stroke();
+  const dot=ux*nx+uy*ny,tx=ux-dot*nx,ty=uy-dot*ny,tl=Math.hypot(tx,ty)||1;
+  x.strokeStyle='rgba(255,255,255,.4)';x.beginPath();x.moveTo(gx,gy);x.lineTo(gx+tx/tl*38,gy+ty/tl*38);x.stroke();}
+ x.restore();
+}
+function poolDrawCue(x,cue){
+ const pt=poolDrag.current,dx=cue.x-pt.x,dy=cue.y-pt.y,m=Math.hypot(dx,dy);if(m<1)return;
+ const start=16+Math.min(1,m/230)*110,len=300;
+ x.save();x.translate(cue.x,cue.y);x.rotate(Math.atan2(dy,dx)+Math.PI);
+ const g=x.createLinearGradient(start,0,start+len,0);
+ g.addColorStop(0,'#bfe3ff');g.addColorStop(.02,'#f4f1e8');g.addColorStop(.05,'#f1d9a8');g.addColorStop(.55,'#c28a46');g.addColorStop(.6,'#2a1a10');g.addColorStop(1,'#120a05');
+ x.shadowColor='rgba(0,0,0,.45)';x.shadowBlur=6;x.shadowOffsetY=3;
+ x.beginPath();x.moveTo(start,-1.7);x.lineTo(start+len,-4.4);x.lineTo(start+len,4.4);x.lineTo(start,1.7);x.closePath();x.fillStyle=g;x.fill();
+ x.restore();
+}
+function drawPool(){
+ const c=document.getElementById('pool-canvas');if(!c||!poolGame)return;
+ const x=c.getContext('2d');x.setTransform(2,0,0,2,0,0);
+ if(!poolTable)poolTable=poolBuildTable();
+ x.drawImage(poolTable,0,0,1000,500);
+ const balls=poolFrame||(poolGame.state.balls||[]).filter(b=>b.on).map(b=>({n:b.n,x:b.x,y:b.y,s:1}));
+ const cue=balls.find(b=>b.n===0&&b.s>=1);
+ for(const b of balls){x.beginPath();x.arc(b.x+2,b.y+3,10*b.s,0,6.2832);x.fillStyle='rgba(0,0,0,.3)';x.fill();}
+ if(poolDrag&&cue)poolDrawAim(x,cue,balls);
+ for(const b of balls)if(b.s<1)poolDrawBall(x,b);
+ for(const b of balls)if(b.s>=1)poolDrawBall(x,b);
+ if(poolDrag&&cue)poolDrawCue(x,cue);
+ else if(cue&&!poolFrame&&poolCanShoot()){x.beginPath();x.arc(cue.x,cue.y,16,0,6.2832);x.setLineDash([3,5]);x.strokeStyle='rgba(255,200,61,.65)';x.lineWidth=1.5;x.stroke();x.setLineDash([]);}
+}
 function leavePool(){if(poolGame?.status==='waiting')return cancelPool();if(poolGame?.status==='playing')return resignPool();resetPool();}
 
 load();
